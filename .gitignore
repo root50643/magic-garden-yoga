@@ -9,7 +9,6 @@ coverage/
 !.env.example
 *.pem
 *.key
-Test1.vrm
-public/models/Test1.vrm
+/magic-garden-guide-source.vrm
 .DS_Store
 Thumbs.db

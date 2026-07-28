@@ -30,7 +30,7 @@ pnpm build
   "title": "魔法花園瑜珈闖關",
   "subtitle": "跟著花園精靈一起伸展！",
   "avatar": {
-    "modelPath": "/models/Test1.vrm",
+    "modelPath": "/models/magic-garden-guide.vrm",
     "scale": 1,
     "cameraDistance": 2.8,
     "mirrored": true
@@ -407,9 +407,8 @@ http://localhost:5173/?poseDebug=1
 
 ### 更換 VRM
 
-1. 先確認模型授權允許目標用途與散布。
-2. 把模型放入 `public/models/`，例如 `public/models/garden-guide.vrm`。
-3. 修改：
+1. 把模型放入 `public/models/`，例如 `public/models/garden-guide.vrm`。
+2. 修改：
 
 ```json
 "avatar": {
@@ -420,12 +419,14 @@ http://localhost:5173/?poseDebug=1
 }
 ```
 
-4. 在準備頁測試模型高度、取景、面向、左右手腳與腳掌。
-5. 視需要調整 `scale` 與 `cameraDistance`。
+3. 在準備頁測試模型高度、取景、面向、左右手腳與腳掌。
+4. 視需要調整 `scale` 與 `cameraDistance`。
 
 模型需要有效的 VRM Humanoid 骨架。缺少某些標準骨骼時，該段可能維持原姿勢；表情、頭部細節與手指目前不由 Pose Landmarker 完整驅動。
 
-`Test1.vrm` 受限於模型內嵌授權，只供本機／校內測試，不可提交到公開 GitHub 或公開部署。clone 專案後，開發者必須自行放置有權使用的模型到 `public/models/Test1.vrm`，或修改 `avatar.modelPath` 指向另一個已授權模型。
+預設模型是 `public/models/magic-garden-guide.vrm`，作者為 NHRI。模型會隨公開 GitHub 專案與 GitHub Pages 網站發布。
+
+GitHub Pages 專案網站位於 `/magic-garden-yoga/` 子路徑。設定檔中的資產 URL 是否要寫成根路徑、相對路徑或經程式解析的 base 路徑，必須與實際 `vite.config.ts` 和載入程式一致；不要只在 JSON 前面手動補上倉庫名稱。部署方式與驗證步驟見 [GitHub Pages 部署手冊](GITHUB_PAGES.md)。
 
 ### 新增到十關或更多
 

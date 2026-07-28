@@ -26,6 +26,7 @@ import {
 import { evaluatePose } from "./lib/poseEvaluator";
 import { PoseSmoother } from "./lib/poseSmoother";
 import { PoseTracker } from "./lib/poseTracker";
+import { resolvePublicAssetPath } from "./lib/publicAsset";
 import type {
   DetectedPose,
   GameConfig,
@@ -694,7 +695,7 @@ export function App() {
               <i /> 你的魔法動作夥伴
             </div>
             <VrmPreview
-              modelPath={config.avatar.modelPath}
+              modelPath={resolvePublicAssetPath(config.avatar.modelPath)}
               modelScale={config.avatar.scale}
               cameraDistance={config.avatar.cameraDistance}
               mirrored={config.avatar.mirrored}
@@ -738,7 +739,7 @@ export function App() {
                 <div className="pose-card__image-wrap">
                   <img
                     className="pose-card__image"
-                    src={activePose.imagePath}
+                    src={resolvePublicAssetPath(activePose.imagePath)}
                     alt={`${activePose.name}姿勢示範`}
                   />
                   <span className="pose-card__number">

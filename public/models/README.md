@@ -1,14 +1,16 @@
-# 本機 VRM 模型
+# VRM 模型
 
-`Test1.vrm` 僅供已取得授權的本機開發與測試使用，因模型內嵌授權資訊限制再散布，
-本專案刻意透過 `.gitignore` 排除：
+本遊戲的正式引導角色位於：
 
-- `Test1.vrm`
-- `public/models/Test1.vrm`
+```text
+public/models/magic-garden-guide.vrm
+```
 
-啟動遊戲前，請選擇以下其中一種方式：
+作者為 NHRI。模型會隨公開 GitHub 專案與 GitHub Pages 網站發布。
 
-1. 將已獲授權的模型放到 `public/models/Test1.vrm`。
-2. 在 `public/config/game.json` 的 `avatar.modelPath` 指向另一個可合法使用的 VRM。
+若要更換模型：
 
-請勿將受限制的測試模型加入 Git、GitHub、發佈壓縮檔或正式網站。
+1. 將新模型放入本目錄，使用能描述角色用途且適合 URL 的檔名。
+2. 更新 `public/config/game.json` 的 `avatar.modelPath`。
+3. 執行測試與正式建置，確認模型能從實際部署子路徑載入。
+4. 更新 `THIRD_PARTY_NOTICES.md` 中的模型名稱與作者資訊。

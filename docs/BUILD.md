@@ -52,7 +52,7 @@ Network: http://192.168.1.20:5173/
 
 ```text
 public/config/game.json
-public/models/Test1.vrm
+public/models/magic-garden-guide.vrm
 public/models/pose_landmarker_full.task
 public/mediapipe/wasm/
 public/assets/poses/*.png
@@ -60,7 +60,7 @@ public/assets/poses/*.png
 
 `pnpm install` 只安裝套件，不會重新下載這些專案資產。若資產被移除，設定檔整合測試或瀏覽器載入會失敗。
 
-受限授權的 `Test1.vrm` 已被 Git 忽略，因此從 GitHub clone 後不會自動存在。請自行把有權使用的 VRM 放到 `public/models/Test1.vrm`，或先修改 `avatar.modelPath` 指向另一個已授權模型。不可為了讓測試通過而把受限模型強制提交到 Git。
+`public/models/magic-garden-guide.vrm` 是作者 NHRI 製作的 3D 引導角色，會隨公開 GitHub 專案與 GitHub Pages 網站發布，因此正常 clone 後可直接取得。
 
 ## 開發伺服器
 
@@ -242,6 +242,19 @@ dist/mediapipe/wasm/
 - 啟用 HTTPS，並避免加入會阻擋 Worker、WASM 或 blob URL 的過嚴 Content Security Policy。
 
 設定中的資產路徑目前以 `/` 開頭，代表網站根目錄。若必須部署到 `https://example.edu.tw/yoga/` 之類子路徑，需要一併規劃 Vite `base` 與所有設定資產 URL；不要只把 `dist/` 搬到子目錄後期待絕對路徑自動改變。
+
+## GitHub Pages
+
+預計專案網站位於：
+
+```text
+https://root50643.github.io/magic-garden-yoga/
+```
+
+GitHub Pages 的 project site 位於 `/magic-garden-yoga/` 子路徑，不是網域根目錄。因此必須同時處理 Vite `base` 與執行階段的設定／模型／圖片／WASM 路徑。部署採 GitHub Actions 自動執行安裝、檢查、建置與 Pages 發布；工作流程檔與 `vite.config.ts` 才是實際部署參數的來源，不要只依文件範例推測目前狀態。
+
+完整的初次設定、Actions 權限、HTTPS 攝影機驗收、發布檢查與 404 排錯請見
+[GitHub Pages 部署手冊](GITHUB_PAGES.md)。在 Actions 成功完成且 Pages 顯示正式網址以前，不應把預計網址標示為已上線。
 
 ## 建置常見問題
 

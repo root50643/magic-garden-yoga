@@ -1,4 +1,5 @@
 import type { GameConfig, PoseFrame, TrackingStatus } from "../types";
+import { resolvePublicAssetPath } from "./publicAsset";
 
 type PoseDetectionConfig = GameConfig["poseDetection"];
 
@@ -75,7 +76,10 @@ function abortError(): DOMException {
 function resolveAssetUrl(path: string, directory: boolean): string {
   const normalizedPath =
     directory && !path.endsWith("/") ? `${path}/` : path;
-  const url = new URL(normalizedPath, document.baseURI).href;
+  const url = new URL(
+    resolvePublicAssetPath(normalizedPath),
+    document.baseURI,
+  ).href;
   return directory ? url.replace(/\/$/, "") : url;
 }
 
@@ -453,4 +457,3 @@ export class PoseTracker {
     }
   }
 }
-

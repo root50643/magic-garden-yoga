@@ -32,6 +32,7 @@ describe("shipped game configuration", () => {
 
     const publicDirectory = resolve(workspace, "public");
     const localPaths = [
+      config.avatar.modelPath,
       config.poseDetection.modelPath,
       ...config.poses.map((pose) => pose.imagePath),
     ];
@@ -47,10 +48,6 @@ describe("shipped game configuration", () => {
       ).not.toThrow();
     }
 
-    // The configured VRM is a local-only test asset whose embedded license
-    // restricts redistribution, so it is intentionally excluded from Git.
-    // Runtime setup documentation tells each developer where to place their
-    // own authorized model.
     expect(config.avatar.modelPath).toMatch(/^\/models\/.+\.vrm$/u);
   });
 

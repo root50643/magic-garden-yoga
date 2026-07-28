@@ -1,8 +1,17 @@
 {
   "name": "magic-garden-yoga",
   "version": "1.0.0",
+  "description": "以 MediaPipe 姿勢辨識與 VRM 引導角色打造的兒童瑜珈闖關網頁遊戲",
   "private": true,
   "type": "module",
+  "homepage": "https://root50643.github.io/magic-garden-yoga/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/root50643/magic-garden-yoga.git"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -24,21 +24,15 @@
 
 本專案包含供瀏覽器本機載入的 MediaPipe Pose Landmarker task 與其 WASM 執行檔；發布時應一併保留相應授權與通知。
 
-## Test1.vrm
+## `magic-garden-guide.vrm`
 
-專案根目錄與 `public/models/Test1.vrm` 是使用者提供的測試模型。模型內嵌 VRM 1.0 中繼資料顯示：
+`public/models/magic-garden-guide.vrm` 是本遊戲的公開 3D 引導角色：
 
-- 作者／署名：NHRI
-- 使用範圍：僅作者允許的使用者
-- 商業用途：僅個人非營利
-- 要求署名
-- 不允許修改
-- 再散布受限制
-
-因此目前版本只把它視為本機或校內測試檔。不要把模型放進公開網站、安裝包或可下載成品。公開前應取得 NHRI 的明確授權，或把 `avatar.modelPath` 改成具有相容公開授權的 VRM，並從發行物中移除 `Test1.vrm`。
+- 作者：NHRI
+- 用途：遊戲中的 3D 姿勢引導角色
+- 發布位置：公開 GitHub 專案與 GitHub Pages 網站
 
 ## 姿勢卡與音效
 
 - `public/assets/poses/*.png`：以內建 ImageGen 為本專案產生的五張原創引導插畫，沒有取用 SystemAnimatorOnline 素材。
 - 互動聲音：由 `src/lib/audio.ts` 在瀏覽器即時合成，不包含外部音訊檔。
-

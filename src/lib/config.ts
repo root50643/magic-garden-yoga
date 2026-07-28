@@ -5,6 +5,7 @@ import {
   type PoseConstraint,
   type PoseDefinition,
 } from "../types";
+import { resolvePublicAssetPath } from "./publicAsset";
 
 export interface ConfigResponse {
   readonly ok: boolean;
@@ -445,7 +446,7 @@ export function resolvePoseScoreThreshold(
 }
 
 export async function loadGameConfig(
-  url = "/config/game.json",
+  url = resolvePublicAssetPath("/config/game.json"),
   fetcher?: ConfigFetcher,
 ): Promise<GameConfig> {
   const request: ConfigFetcher =

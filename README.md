@@ -51,10 +51,11 @@ pnpm preview
 | --- | --- |
 | [文件索引](docs/README.md) | 依工作情境選擇文件 |
 | [建置與執行](docs/BUILD.md) | Windows、Node.js、pnpm、`0.0.0.0`、LAN、HTTPS、正式建置與部署 |
+| [GitHub Pages 部署](docs/GITHUB_PAGES.md) | 公開網址、Actions 自動部署、子路徑、攝影機權限與發布檢查 |
 | [開發指南](docs/DEVELOPMENT.md) | 架構、資料流、狀態機、程式目錄、測試與 `poseDebug` |
 | [設定檔手冊](docs/CONFIGURATION.md) | `game.json` 完整欄位、每關分數門檻、評分規則、換圖、換模型與新增關卡 |
 | [維護手冊](docs/MAINTENANCE.md) | 依賴更新、姿勢校準、排行榜、隱私授權、疑難排解與發行檢查表 |
-| [第三方授權](THIRD_PARTY_NOTICES.md) | 套件、參考專案、測試 VRM 與美術素材說明 |
+| [第三方授權](THIRD_PARTY_NOTICES.md) | 套件、參考專案、原創 VRM 與美術素材說明 |
 
 ## 最常修改的設定
 
@@ -64,7 +65,7 @@ pnpm preview
 {
   "challengeId": "magic-garden-yoga-dev",
   "avatar": {
-    "modelPath": "/models/Test1.vrm",
+    "modelPath": "/models/magic-garden-guide.vrm",
     "scale": 1,
     "cameraDistance": 2.8,
     "mirrored": true
@@ -110,8 +111,10 @@ http://localhost:5173/?poseDebug=1
 - 以 `localhost` 或 HTTPS 執行；請勿直接雙擊 `index.html`。
 - 這是活動遊戲，不是醫療、復健、運動處方或安全診斷工具。
 
-## 模型與發布限制
+## 3D 引導模型
 
-`Test1.vrm` 是使用者提供的測試模型。其內嵌資訊要求署名、限個人非營利使用，並限制修改與再散布，因此已由 `.gitignore` 排除，不可上傳到公開 GitHub、網站、Release 或安裝包。clone 專案後，開發者需自行把有權使用的模型放到 `public/models/Test1.vrm`，或修改 `avatar.modelPath`。公開前應改用允許發布的 VRM，並檢查 `dist/` 不含受限模型。
+`public/models/magic-garden-guide.vrm` 是魔法花園的 3D 引導角色，作者為 NHRI。模型會隨公開 GitHub 專案及 GitHub Pages 網站一併發布。
 
-完整說明請閱讀 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 與[維護手冊的發布前檢查](docs/MAINTENANCE.md#發布檢查表)。
+預計公開網站為
+<https://root50643.github.io/magic-garden-yoga/>。部署前請依照
+[GitHub Pages 部署手冊](docs/GITHUB_PAGES.md) 完成 Actions、Pages 與攝影機驗收；在工作流程實際執行成功前，該網址不代表已上線。

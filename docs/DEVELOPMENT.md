@@ -187,7 +187,7 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 └─ vitest.config.ts             Node 測試環境
 ```
 
-根目錄的 `Test1.vrm` 不會被 Vite 自動部署；實際執行使用 `public/models/Test1.vrm`。兩者都受同一模型授權限制且已被 Git 忽略。clone 後需自行提供已授權模型，或修改設定路徑。
+實際執行使用 `public/models/magic-garden-guide.vrm`。這個檔名用來清楚表示它是遊戲中的魔法花園 3D 引導角色；作者為 NHRI，模型會隨公開 GitHub 專案與 GitHub Pages 網站發布。
 
 ## 共用資料契約
 

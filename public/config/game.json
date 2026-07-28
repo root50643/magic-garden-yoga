@@ -3,7 +3,7 @@
   "title": "魔法花園瑜珈闖關",
   "subtitle": "跟著花園精靈一起伸展，集滿五顆勇氣星！",
   "avatar": {
-    "modelPath": "/models/Test1.vrm",
+    "modelPath": "/models/magic-garden-guide.vrm",
     "scale": 1,
     "cameraDistance": 2.8,
     "mirrored": true

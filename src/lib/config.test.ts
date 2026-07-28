@@ -14,7 +14,7 @@ function validConfig(): GameConfig {
     title: "魔法花園瑜珈",
     subtitle: "跟著精靈一起伸展",
     avatar: {
-      modelPath: "/models/Test1.vrm",
+      modelPath: "/models/magic-garden-guide.vrm",
       scale: 1,
       cameraDistance: 3,
       mirrored: true,

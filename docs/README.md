@@ -9,6 +9,7 @@
 | 第一次在 Windows 啟動專案 | [BUILD.md：第一次安裝](BUILD.md#第一次安裝) |
 | 讓同一區網的其他電腦連線 | [BUILD.md：區域網路測試與 HTTPS](BUILD.md#區域網路測試與-https) |
 | 產生正式版本或部署 | [BUILD.md：正式建置](BUILD.md#正式建置) |
+| 發布到 GitHub Pages | [GITHUB_PAGES.md：GitHub Pages 部署手冊](GITHUB_PAGES.md) |
 | 了解攝影機到評分與 VRM 的資料流 | [DEVELOPMENT.md：架構與資料流](DEVELOPMENT.md#架構與資料流) |
 | 修改程式並執行測試 | [DEVELOPMENT.md：開發工作流程](DEVELOPMENT.md#開發工作流程) |
 | 調整某一關的通過分數 | [CONFIGURATION.md：每關設定](CONFIGURATION.md#每關姿勢欄位) |

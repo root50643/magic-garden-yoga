@@ -1,6 +1,6 @@
 # 維護手冊
 
-本文件提供日常維護、依賴更新、姿勢校準、排行榜資料、故障排除、安全隱私、模型授權與發布檢查。建置命令見 [BUILD.md](BUILD.md)，設定欄位見 [CONFIGURATION.md](CONFIGURATION.md)。
+本文件提供日常維護、依賴更新、姿勢校準、排行榜資料、故障排除、安全隱私、3D 模型與發布檢查。建置命令見 [BUILD.md](BUILD.md)，設定欄位見 [CONFIGURATION.md](CONFIGURATION.md)。
 
 ## 日常維護節奏
 
@@ -90,7 +90,7 @@ cp node_modules/@mediapipe/tasks-vision/wasm/* public/mediapipe/wasm/
 FilesetResolver.forVisionTasks(config.wasmPath, true)
 ```
 
-5. 若更換 `.task` 模型，記錄來源、版本、授權與雜湊；不要假設任意 task 與任意 Tasks Vision 版本相容。
+5. 若更換 `.task` 模型，記錄來源、版本與雜湊；不要假設任意 task 與任意 Tasks Vision 版本相容。
 6. 執行完整自動測試與瀏覽器測試。
 7. 在支援 SIMD 與不支援 SIMD 的目標裝置上至少各測一次；若沒有舊裝置，仍須確認 no-SIMD 檔案可被部署。
 8. 檢查 Network 面板中 loader、WASM、task 都是 200，且沒有從未知 CDN 載入。
@@ -264,40 +264,43 @@ location.reload();
 
 `game.json` 與前端 bundle 完全公開，不可放 API key、密碼或私人網址。此專案目前不需要 `.env`；`.env*` 已忽略，但仍不應把秘密打包到 `VITE_` 前綴變數，因為那會暴露給瀏覽器。
 
-### `Test1.vrm`
+### `magic-garden-guide.vrm`
 
-`Test1.vrm` 的內嵌權利資訊限制使用、修改與再散布。專案已在 `.gitignore` 排除：
+正式模型位置為：
 
 ```text
-Test1.vrm
-public/models/Test1.vrm
+public/models/magic-garden-guide.vrm
 ```
 
-因此：
+這是作者 NHRI 製作的魔法花園 3D 引導角色，會納入版本控制、正式建置與 GitHub Pages 發布。
 
-- 不可把它強制加入 Git、公開 GitHub、GitHub Release、`dist/` 壓縮包或公開網站。
-- clone 後不會自動有此模型；開發者要自行把已獲授權的模型放到 `public/models/Test1.vrm`，或修改 `avatar.modelPath`。
-- 即使 `.gitignore` 存在，也要在提交前用 `git status --ignored` 與 `git check-ignore` 確認。
-- 若模型曾被提交到 Git 歷史，單純刪除最新檔案不足以撤回散布；應停止發布並由權利負責人決定歷史清理與通知方式。
-- 公開部署前應以具有明確公開／商用條款的模型替代，保存授權證據並更新第三方通知。
-
-確認忽略規則：
-
-```bash
-git check-ignore -v Test1.vrm
-git check-ignore -v public/models/Test1.vrm
-```
-
-正式建置會把 `public/` 中實際存在的模型複製到 `dist/`，不理會 `.gitignore`。因此「未提交 Git」不代表「未被部署」；上傳 `dist/` 前仍須人工檢查。
+更換模型時，請同步記錄新檔名、作者、版本或雜湊，並更新 `game.json`、README、模型目錄說明與發布紀錄。
 
 ### 第三方專案與套件
 
 - SystemAnimatorOnline / XR Animator 只作姿勢追蹤與 VRM 行為參考；保留來源連結與署名脈絡。
 - 不要從其儲存庫複製未經確認的美術、音效或第三方模型。
-- 每次更新套件與模型，重新檢查授權與 notice。
+- 每次更新第三方套件，重新檢查授權與 notice。
 - 發行內容應保留 MediaPipe 與其他套件要求的授權通知。
 
 完整現況見 [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。該文件是維護備忘，不是法律意見。
+
+## GitHub Pages 維運
+
+預計正式網站為
+<https://root50643.github.io/magic-garden-yoga/>。Pages 專案網站位於子路徑 `/magic-garden-yoga/`；任何倉庫重新命名、帳號移轉或自訂網域，都可能改變 base path 與公開網址。
+
+日常發布應由 GitHub Actions 從已提交的原始碼重新安裝、檢查、建置並部署，不要從開發者電腦手動上傳一份來源不明的 `dist/`。實際 workflow 與 `vite.config.ts` 是部署行為的來源；如果文件描述與它們不同，先停止發布並釐清，不要猜測哪一份正確。
+
+以下變更後必須重新走完整 Pages 驗收：
+
+- 倉庫名稱、GitHub 帳號、Pages 自訂網域或 Vite `base`。
+- `game.json` 中任何模型、圖片、task 或 WASM 路徑。
+- Actions workflow、Node／pnpm 版本、lockfile 或建置命令。
+- VRM、MediaPipe task、WASM 檔案或其檔名。
+- 攝影機、Worker、WebAssembly、CSP 或 Permissions Policy 相關程式。
+
+操作與排錯請依 [GitHub Pages 部署手冊](GITHUB_PAGES.md)。Actions 顯示綠色只代表工作流程成功；仍需在全新瀏覽器工作階段檢查正式 URL、攝影機權限與所有大型資產。
 
 ## 故障排除
 
@@ -343,7 +346,7 @@ Worker 初始化錯誤會被應用程式捕捉並顯示在頁面，因此主頁 
 
 ### VRM 載入失敗或人物不動
 
-- clone 後缺少 `public/models/Test1.vrm` 是預期狀況；自行提供授權模型或改路徑。
+- 確認 `public/models/magic-garden-guide.vrm` 存在，且建置後也出現在對應的 `dist/models/` 路徑。
 - 在 Network 確認 VRM URL 200，內容不是 Git LFS pointer、HTML 或 0-byte 檔。
 - 檢查檔名大小寫與部署根路徑。
 - 確認是有效 VRM，且 Humanoid 中有必要的左右手腳骨骼。
@@ -396,7 +399,7 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 - 把 `maxInferenceFps` 從 20 逐步降到 15 或 12。
 - 關閉其他使用 GPU／攝影機的分頁與程式。
 - 確認瀏覽器啟用硬體加速。
-- 降低 VRM 材質、貼圖與多邊形複雜度，但必須使用授權允許修改的模型。
+- 降低 VRM 材質、貼圖與多邊形複雜度。
 - 在 DevTools Performance 分開觀察主執行緒動畫與 Worker inference，不要只看整體 FPS。
 
 ### 排行榜沒有保存
@@ -426,6 +429,8 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 ### 部署與安全
 
 - [ ] 使用正式 HTTPS，不以 Vite dev／preview 對外服務。
+- [ ] GitHub Pages 的 Source 已設為 GitHub Actions，最新部署 workflow 成功完成。
+- [ ] 正式網址與 Vite／資產 base path 都對應目前的 owner 與 repository 名稱。
 - [ ] 攝影機權限與 Permissions Policy 在正式 origin 驗證。
 - [ ] loader、WASM、task、Worker、VRM、圖片全部回應 200 與正確 MIME。
 - [ ] `index.html`／`game.json` 短快取，雜湊 JS/CSS 長快取；更新的大型資產已清 CDN。
@@ -433,23 +438,22 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 - [ ] 沒有加入分析 SDK、影像上傳、秘密、私人 URL 或不必要的第三方請求。
 - [ ] 錯誤頁不暴露本機路徑、學生資訊或敏感資料。
 
-### 授權與 GitHub
+### 素材與 GitHub
 
 - [ ] `git remote -v` 的 push 目標是團隊自己的儲存庫，不是 SystemAnimatorOnline。
-- [ ] `git status --ignored` 確認 `Test1.vrm` 與 `public/models/Test1.vrm` 未被追蹤。
-- [ ] `dist/`、Release 壓縮包與網站內容不含受限制的 Test1 模型。
-- [ ] 正式 VRM、姿勢圖片、MediaPipe task／WASM 與所有套件都有可保存的來源和授權證據。
+- [ ] `public/models/magic-garden-guide.vrm` 已納入預期提交與建置內容，公開頁面能成功載入。
+- [ ] 正式 VRM、姿勢圖片、MediaPipe task／WASM 與所有套件的檔名及版本已有記錄。
 - [ ] `THIRD_PARTY_NOTICES.md` 已更新。
 - [ ] 未提交 `.env`、憑證、私鑰、日誌、攝影機截圖或測試者個資。
 - [ ] README 與 `docs/` 反映目前命令、欄位與限制。
 
 ### 發布後
 
-- [ ] 從另一台未快取的電腦開啟正式 URL。
+- [ ] 從另一台未快取的電腦開啟正式 Pages URL。
 - [ ] 重新授予攝影機權限並完成至少一關。
 - [ ] 確認瀏覽器沒有 mixed content、WASM、Worker、WebGL 或 404 錯誤。
 - [ ] 記錄發布 commit、日期、正式 `challengeId`、模型版本與回復方式。
-- [ ] 保留上一個可部署的 `dist/` 或 release artifact，以便靜態回滾；不可包含無權散布的模型。
+- [ ] 保留上一個可部署的 commit 或 artifact，以便回滾。
 
 ## 文件維護
 
@@ -461,6 +465,6 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 | 模組、資料流、狀態機、測試 | `DEVELOPMENT.md` |
 | `GameConfig`、constraint、門檻、資產路徑 | `CONFIGURATION.md` |
 | 依賴、校準、Local Storage、故障、發布流程 | `MAINTENANCE.md` |
-| 套件、模型、美術或參考來源授權 | `THIRD_PARTY_NOTICES.md` |
+| 第三方套件、參考來源或素材資訊 | `THIRD_PARTY_NOTICES.md` |
 
-文件範例也要接受 code review。尤其不要在文件中放入真實學生姓名、攝影機截圖、內網秘密位址、憑證或未獲授權的模型下載連結。
+文件範例也要接受 code review。尤其不要在文件中放入真實學生姓名、攝影機截圖、內網秘密位址或憑證。
