@@ -1,0 +1,470 @@
+# `game.json` 設定檔手冊
+
+遊戲內容與大部分活動參數位於 [`../public/config/game.json`](../public/config/game.json)。程式啟動時會 fetch、解析並完整驗證此檔案；修改後重新整理頁面即可載入新設定。
+
+JSON 不支援註解、尾端逗號或 `NaN`。建議使用支援 JSON 語法檢查的編輯器，修改後務必執行：
+
+```bash
+pnpm test
+pnpm build
+```
+
+## 設定優先順序
+
+每一關可覆蓋兩個常用全域預設：
+
+```text
+實際通過分數 = poses[].scoreThreshold ?? poseDetection.scoreThreshold
+實際保持秒數 = poses[].holdSeconds ?? timing.defaultHoldSeconds
+```
+
+`0` 是有效的分數門檻，所以程式使用 nullish fallback，而不是 truthy 判斷。即使門檻為 0，玩家仍須通過必要點可見度與全身入鏡檢查。
+
+## 完整結構範例
+
+以下範例保留一關來展示所有根層與姿勢欄位；實際檔案可放任意數量的姿勢：
+
+```json
+{
+  "challengeId": "magic-garden-yoga-dev",
+  "title": "魔法花園瑜珈闖關",
+  "subtitle": "跟著花園精靈一起伸展！",
+  "avatar": {
+    "modelPath": "/models/Test1.vrm",
+    "scale": 1,
+    "cameraDistance": 2.8,
+    "mirrored": true
+  },
+  "timing": {
+    "countdownSeconds": 3,
+    "defaultHoldSeconds": 3,
+    "trackingGraceMs": 500,
+    "transitionMs": 1500
+  },
+  "poseDetection": {
+    "modelPath": "/models/pose_landmarker_full.task",
+    "wasmPath": "/mediapipe/wasm",
+    "maxInferenceFps": 20,
+    "scoreThreshold": 75,
+    "minDetectionConfidence": 0.55,
+    "minTrackingConfidence": 0.55,
+    "minPosePresenceConfidence": 0.55
+  },
+  "leaderboard": {
+    "limit": 10,
+    "nameMaxLength": 12
+  },
+  "effects": {
+    "defaultQuality": "high",
+    "audioEnabled": true
+  },
+  "poses": [
+    {
+      "id": "mountain",
+      "name": "山式",
+      "englishName": "Mountain Pose",
+      "imagePath": "/assets/poses/mountain.png",
+      "instruction": "雙腳站穩、背挺直，雙手自然放在身體兩旁。",
+      "orientation": "front",
+      "allowMirrored": true,
+      "scoreThreshold": 75,
+      "holdSeconds": 3,
+      "minimumVisibility": 0.48,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把手臂伸直一點。"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## 根層欄位
+
+| 路徑 | 型別／範圍 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `challengeId` | 非空字串 | 是 | 本機排行榜分區。開發版使用 `magic-garden-yoga-dev`；正式發布時可改為穩定的正式 ID |
+| `title` | 非空字串 | 是 | 遊戲標題；目前品牌列主要使用固定文案，但此欄仍是設定契約 |
+| `subtitle` | 非空字串 | 是 | 準備頁副標題 |
+| `avatar` | 物件 | 是 | VRM 顯示設定 |
+| `timing` | 物件 | 是 | 倒數、保持、寬限與轉場時間 |
+| `poseDetection` | 物件 | 是 | MediaPipe 模型、效能、信心值與全域分數預設 |
+| `leaderboard` | 物件 | 是 | 本機排行榜規則 |
+| `effects` | 物件 | 是 | 畫質與音效預設 |
+| `poses` | 非空陣列 | 是 | 依陣列順序出現的關卡 |
+
+## `avatar`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `modelPath` | 非空字串 | VRM URL；建議放在 `public/models/` 並使用 `/models/name.vrm` |
+| `scale` | 有限數字，`> 0` | 載入後對整個 VRM scene 套用的比例 |
+| `cameraDistance` | 有限數字，`> 0` | 取景的最低攝影機距離；程式仍會依模型 bounds 自動退後，避免裁切 |
+| `mirrored` | boolean | `true` 水平翻轉 VRM canvas，讓操作感像照鏡子 |
+
+`avatar.mirrored` 不會交換 MediaPipe 的左右點、VRM 的左右骨骼或姿勢規則。這是純顯示選項。若要讓「右腳抬起」與「左腳抬起」都可通過，應調整該姿勢的 `allowMirrored`。
+
+## `timing`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `countdownSeconds` | 整數，`>= 0` | 按開始後的倒數；不計入排行榜時間 |
+| `defaultHoldSeconds` | 有限數字，`> 0` | 未設定 `poses[].holdSeconds` 時的連續保持秒數 |
+| `trackingGraceMs` | 有限數字，`>= 0` | 短暫低分、遮擋或追蹤遺失的寬限毫秒數 |
+| `transitionMs` | 有限數字，`>= 0` | 一般動態模式的過關轉場時間；不計入排行榜時間 |
+
+寬限期間的時間不會加入保持進度。若正確姿勢在寬限內恢復，從原進度繼續；超過才歸零。低畫質或減少動態效果時，程式可能使用較短的固定轉場，避免長動畫。
+
+## `poseDetection`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `modelPath` | 非空字串 | MediaPipe Pose Landmarker `.task` URL |
+| `wasmPath` | 非空字串 | 包含 MediaPipe loader 與 WASM 的目錄 URL，不含尾端檔名 |
+| `maxInferenceFps` | 有限數字，`> 0` | 每秒最多送入 Worker 的影格數；通常 12–20 |
+| `scoreThreshold` | 有限數字，0–100 | 姿勢未設定個別門檻時的全域 fallback |
+| `minDetectionConfidence` | 有限數字，0–1 | MediaPipe 初次姿勢偵測信心門檻 |
+| `minTrackingConfidence` | 有限數字，0–1 | MediaPipe 影片追蹤信心門檻 |
+| `minPosePresenceConfidence` | 有限數字，0–1 | MediaPipe 判斷人物姿勢存在的信心門檻 |
+
+三個 MediaPipe confidence 影響「模型是否產生／持續追蹤 pose」，不同於 `minimumVisibility`。把它們調低可能在暗處更常產生骨架，也可能增加錯誤骨架；把它們調高則可能讓骨架頻繁消失。一次只改一項並做真人測試。
+
+`maxInferenceFps` 不是畫面 FPS。攝影機與動畫仍可維持較高更新率，只有姿勢推論被節流。低效能電腦可先試 12–15；太低會使動作回饋和 500 ms 寬限顯得不連續。
+
+## `leaderboard`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `limit` | 整數，`>= 1` | 每個 `challengeId` 最多保留的名次 |
+| `nameMaxLength` | 整數，`>= 1` | 暱稱最大 Unicode 字元數 |
+
+暱稱會做 Unicode NFKC 正規化、移除不可見控制字元、合併空白並截斷。同名比較不分大小寫，只保留最快成績。資料只在同一瀏覽器、同一 origin 的 Local Storage。
+
+## `effects`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `defaultQuality` | `"high"` 或 `"low"` | 初次載入的粒子／動畫畫質 |
+| `audioEnabled` | boolean | 是否建立可播放的 Web Audio 音效 |
+
+使用者仍可由右上角切換畫質與靜音。靜音偏好會寫入 `magic-garden-yoga:muted`；畫質目前只保存在當次 React 狀態。作業系統 `prefers-reduced-motion: reduce` 會進一步降低動態效果。
+
+## 每關姿勢欄位
+
+| 欄位 | 型別／範圍 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `id` | 非空且唯一字串 | 是 | 穩定的姿勢識別；比較重複時會 trim 且不分大小寫 |
+| `name` | 非空字串 | 是 | 繁體中文名稱 |
+| `englishName` | 非空字串 | 是 | 英文名稱／副標 |
+| `imagePath` | 非空字串 | 是 | 引導圖片 URL |
+| `instruction` | 非空字串 | 是 | 給兒童的一句動作說明 |
+| `orientation` | `front`、`threeQuarter`、`side` | 是 | 內容／校準註記；目前不會自動改變評分數學 |
+| `allowMirrored` | boolean | 是 | 是否評估左右互換版本並取較高分 |
+| `scoreThreshold` | 有限數字，0–100 | 否 | 這一關的通過分數；省略時使用全域 `poseDetection.scoreThreshold` |
+| `holdSeconds` | 有限數字，`> 0` | 否 | 這一關的保持秒數；省略時使用 `timing.defaultHoldSeconds` |
+| `minimumVisibility` | 有限數字，0–1 | 是 | 規則所需點與必要身體點的最低 visibility／presence |
+| `constraints` | 非空陣列 | 是 | 此關的評分規則；支援三種類型 |
+
+### 獨立調整每關門檻
+
+例如讓樹式較寬鬆、星星式維持原門檻：
+
+```json
+{
+  "poses": [
+    {
+      "id": "tree",
+      "scoreThreshold": 68
+    },
+    {
+      "id": "star",
+      "scoreThreshold": 75
+    }
+  ]
+}
+```
+
+這仍是節錄範例；每個姿勢都必須保留其他必填欄位。
+
+建議合理校準範圍通常在 65–85，但沒有所有姿勢共用的最佳值。門檻太低會讓錯誤姿勢過關，太高會讓模型抖動或體型差異造成挫折。先調整不合理的 constraint 目標與 tolerance，再調總門檻。
+
+## MediaPipe 33 個關鍵點
+
+設定檔只能使用以下名稱，名稱與大小寫必須完全相同：
+
+| 索引 | 名稱 | 索引 | 名稱 | 索引 | 名稱 |
+| ---: | --- | ---: | --- | ---: | --- |
+| 0 | `nose` | 11 | `leftShoulder` | 22 | `rightThumb` |
+| 1 | `leftEyeInner` | 12 | `rightShoulder` | 23 | `leftHip` |
+| 2 | `leftEye` | 13 | `leftElbow` | 24 | `rightHip` |
+| 3 | `leftEyeOuter` | 14 | `rightElbow` | 25 | `leftKnee` |
+| 4 | `rightEyeInner` | 15 | `leftWrist` | 26 | `rightKnee` |
+| 5 | `rightEye` | 16 | `rightWrist` | 27 | `leftAnkle` |
+| 6 | `rightEyeOuter` | 17 | `leftPinky` | 28 | `rightAnkle` |
+| 7 | `leftEar` | 18 | `rightPinky` | 29 | `leftHeel` |
+| 8 | `rightEar` | 19 | `leftIndex` | 30 | `rightHeel` |
+| 9 | `mouthLeft` | 20 | `rightIndex` | 31 | `leftFootIndex` |
+| 10 | `mouthRight` | 21 | `leftThumb` | 32 | `rightFootIndex` |
+
+`left` 與 `right` 指被拍攝者自己的解剖學左右，不是觀看螢幕者看到的左右。鏡像只發生在顯示或評分的替代版本。
+
+## Constraint 共通欄位
+
+每一種 constraint 都需要：
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `type` | 指定字串 | `angle`、`relativePosition` 或 `distanceRatio` |
+| `weight` | 有限數字，`> 0` | 此規則對總分的相對權重 |
+| `hint` | 非空字串 | 此規則是最低分時顯示的友善修正提示 |
+
+權重不是百分比，不必加總為 1。例如權重 `2` 的規則對總分影響是權重 `1` 的兩倍。
+
+## `angle`：關節角度
+
+```json
+{
+  "type": "angle",
+  "points": ["leftShoulder", "leftElbow", "leftWrist"],
+  "target": 175,
+  "tolerance": 18,
+  "weight": 1,
+  "hint": "把左手臂伸直一點。"
+}
+```
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `points` | 正好三個 landmark | A、頂點 B、C；上例計算肩—肘—腕在肘部的角度 |
+| `target` | 0–180 | 目標角度，單位為度 |
+| `tolerance` | `> 0` 且 `<= 180` | 分數曲線的容錯尺度，單位為度 |
+
+角度優先使用 MediaPipe world landmarks，因此較不受攝影機距離與透視影響。若 world landmarks 缺失，會使用 normalized x/y 並把 z 壓成 0 的 2D fallback；側身姿勢的 2D fallback 可靠度較低。
+
+## `relativePosition`：相對位置
+
+```json
+{
+  "type": "relativePosition",
+  "a": "leftWrist",
+  "b": "leftShoulder",
+  "axis": "y",
+  "relation": "less",
+  "margin": 0.35,
+  "tolerance": 0.18,
+  "weight": 1.2,
+  "hint": "把左手再舉高一點。"
+}
+```
+
+| 欄位 | 值 | 說明 |
+| --- | --- | --- |
+| `a`、`b` | landmark | 比較 `a - b` |
+| `axis` | `x`、`y`、`z` | 比較軸 |
+| `relation` | `less` | 滿分條件是 `a - b <= -margin` |
+| `relation` | `greater` | 滿分條件是 `a - b >= margin` |
+| `relation` | `near` | 滿分條件是 `abs(a - b) <= margin` |
+| `margin` | 有限數字，`>= 0` | 不扣分區域／要求的最小分隔 |
+| `tolerance` | 有限數字，`> 0` | 超出滿分區後的容錯尺度 |
+
+`x`、`y` 使用 normalized image landmark，差值會再除以「肩膀中點到髖部中點」的 2D 軀幹高度。因此 margin 與 tolerance 的單位是軀幹高度，較不受玩家身高、畫面解析度與站立距離影響。
+
+MediaPipe normalized `y` 往畫面下方增加，所以「手腕高於肩膀」要使用 `axis: "y"`、`relation: "less"`。`x` 是未鏡像來源影像的座標；不要根據 CSS 鏡像後的畫面手動反轉規則。
+
+`z` 優先使用 world landmark；缺失時會退回 normalized z。不同模型與取景的 z 尺度較難直觀校準，能以角度或 x/y 表達時優先使用那些規則。
+
+## `distanceRatio`：距離比例
+
+```json
+{
+  "type": "distanceRatio",
+  "a": "leftAnkle",
+  "b": "rightAnkle",
+  "referenceA": "leftShoulder",
+  "referenceB": "rightShoulder",
+  "target": 1.9,
+  "tolerance": 0.5,
+  "weight": 1,
+  "hint": "雙腳再打開一些。"
+}
+```
+
+計算：
+
+```text
+ratio = distance(a, b) / distance(referenceA, referenceB)
+```
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `a`、`b` | landmark | 要量測的距離 |
+| `referenceA`、`referenceB` | landmark | 用作尺度的參考距離 |
+| `target` | 有限數字，`> 0` | 目標比例 |
+| `tolerance` | 有限數字，`> 0` | 比例偏差的容錯尺度 |
+
+優先使用 3D world landmarks；缺失時使用 z=0 的 normalized 2D fallback。參考距離不可為 0。肩寬常適合當作手腳張開程度的參考，但在三分之四或側身視角會受透視影響，需真人校準。
+
+## 評分計算
+
+對 `angle` 與 `distanceRatio`：
+
+```text
+deviation = abs(measured - target)
+```
+
+對 `relativePosition`，先算超出滿分條件的 violation。接著令：
+
+```text
+r = deviation_or_violation / tolerance
+```
+
+單條規則分數：
+
+```text
+r <= 1       score = 100 - 25 × r
+1 < r < 2    score = 75 × (2 - r)
+r >= 2       score = 0
+```
+
+因此：
+
+| 偏差 | 單條分數 |
+| --- | ---: |
+| 0 | 100 |
+| `0.5 × tolerance` | 87.5 |
+| `1 × tolerance` | 75 |
+| `1.5 × tolerance` | 37.5 |
+| `2 × tolerance` 或以上 | 0 |
+
+總分是加權平均：
+
+```text
+total = Σ(constraintScore × weight) / Σ(weight)
+```
+
+姿勢真正通過需要同時成立：
+
+```text
+total >= 本關 scoreThreshold
+AND 所有必要點 visibility／presence >= minimumVisibility
+AND 所有必要點 x、y 位於 0..1
+```
+
+若 `allowMirrored` 為真，程式把每個 `left...` landmark 名稱換成對應 `right...` 再計算一次，取兩種方向的較高總分。`mirrored` 不會把座標 x 乘以 -1。
+
+## 姿勢校正與 `poseDebug`
+
+使用開發網址：
+
+```text
+http://localhost:5173/?poseDebug=1
+```
+
+推薦校正流程：
+
+1. 先確認引導圖與文字描述的是同一個姿勢方向。
+2. 確認測試者全身入鏡、前方光線充足、畫面只有一人。
+3. 讓至少 3–5 位不同身高與肢體比例的測試者各做數次。
+4. 展開「姿勢判定細節」，記錄本關實際門檻、總分與每條分數。
+5. 先找出與示範圖衝突的 `target`，不要先降低總門檻。
+6. 目標合理但人體自然差異大的規則，逐步增加 `tolerance`。
+7. 不應主導通過結果的輔助規則，降低 `weight`。
+8. 因側身遮擋而無法保持時，小幅調低該關 `minimumVisibility`；同時確認不是手腳真的出框。
+9. 規則整體合理後，才設定該關 `scoreThreshold`。
+10. 以明顯錯誤的負向姿勢再次測試，確認不會過關。
+11. 執行測試與正式建置，再以 Chrome、Edge 各驗收一次。
+
+判讀注意：
+
+- 面板中單條規則低於本關門檻會被標示，但總分是加權平均；單條黃色不等於整體一定失敗。
+- 畫面正確度高但進度不動時，檢查 visibility、body in frame 與是否偵測多人。
+- 提示取當前最低分規則。若常顯示不重要的提示，可能要調整該規則目標、容錯或提示文字，而不是只改權重。
+- EMA 平滑會造成短暫延遲；每次姿勢先穩定約半秒再記錄。
+- 不要只用一張靜態圖片反推人體 3D 深度。最終標準必須以真人攝影機資料校準。
+
+## 更換圖片、模型與新增關卡
+
+### 更換姿勢圖片
+
+1. 把新圖放入 `public/assets/poses/`。
+2. 建議使用 WebP、PNG 或 JPEG，人物全身完整、背景與肢體有對比。
+3. 更新該姿勢 `imagePath`：
+
+```json
+"imagePath": "/assets/poses/new-tree.webp"
+```
+
+4. 同步修改 `instruction`、`orientation` 與 `constraints`。只換圖但保留舊規則，會讓玩家模仿正確圖片卻得到低分。
+5. 注意 Linux 部署會區分檔名大小寫。
+
+圖片本身不會被程式分析或自動變成評分模板；判定標準完全來自 `constraints`。
+
+### 更換 VRM
+
+1. 先確認模型授權允許目標用途與散布。
+2. 把模型放入 `public/models/`，例如 `public/models/garden-guide.vrm`。
+3. 修改：
+
+```json
+"avatar": {
+  "modelPath": "/models/garden-guide.vrm",
+  "scale": 1,
+  "cameraDistance": 2.8,
+  "mirrored": true
+}
+```
+
+4. 在準備頁測試模型高度、取景、面向、左右手腳與腳掌。
+5. 視需要調整 `scale` 與 `cameraDistance`。
+
+模型需要有效的 VRM Humanoid 骨架。缺少某些標準骨骼時，該段可能維持原姿勢；表情、頭部細節與手指目前不由 Pose Landmarker 完整驅動。
+
+`Test1.vrm` 受限於模型內嵌授權，只供本機／校內測試，不可提交到公開 GitHub 或公開部署。clone 專案後，開發者必須自行放置有權使用的模型到 `public/models/Test1.vrm`，或修改 `avatar.modelPath` 指向另一個已授權模型。
+
+### 新增到十關或更多
+
+關卡數完全由 `poses` 陣列長度決定。新增流程：
+
+1. 準備新引導圖。
+2. 複製一個結構接近的完整 pose 物件。
+3. 設定不重複的 `id`、名稱、說明、圖片與視角。
+4. 依新姿勢重建 constraints，不要照抄不相符的目標。
+5. 設定獨立 `scoreThreshold`、需要時設定 `holdSeconds`。
+6. 把物件放到想要的關卡順序。
+7. 重複到十個物件；不需要修改 React 畫面或狀態機。
+8. 執行：
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+9. 以 `?poseDebug=1` 完成每一關真人校準。
+10. 檢查小螢幕上十個關卡圓點與整體版面是否仍可讀。
+
+## 設定錯誤處理
+
+[`../src/lib/config.ts`](../src/lib/config.ts) 會一次收集多個問題，例如：
+
+- 欄位缺少或型別錯誤
+- 數字超出範圍
+- `orientation`、`axis`、`relation` 使用未知值
+- landmark 名稱拼錯
+- constraints 空陣列
+- pose `id` 重複
+
+若頁面顯示設定載入錯誤：
+
+1. 在編輯器確認 JSON 語法。
+2. 查看錯誤頁列出的所有路徑。
+3. 執行 `pnpm test`，正式設定整合測試也會確認本機資產存在。
+4. 修正後硬重新整理，避免舊 `game.json` 快取。
+
+設定驗證只確認路徑是非空字串；實際檔案 404 會在 MediaPipe、圖片或 VRM 載入時才出現。

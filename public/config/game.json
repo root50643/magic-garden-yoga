@@ -1,0 +1,453 @@
+{
+  "challengeId": "magic-garden-yoga-dev",
+  "title": "魔法花園瑜珈闖關",
+  "subtitle": "跟著花園精靈一起伸展，集滿五顆勇氣星！",
+  "avatar": {
+    "modelPath": "/models/Test1.vrm",
+    "scale": 1,
+    "cameraDistance": 2.8,
+    "mirrored": true
+  },
+  "timing": {
+    "countdownSeconds": 3,
+    "defaultHoldSeconds": 3,
+    "trackingGraceMs": 500,
+    "transitionMs": 1500
+  },
+  "poseDetection": {
+    "modelPath": "/models/pose_landmarker_full.task",
+    "wasmPath": "/mediapipe/wasm",
+    "maxInferenceFps": 20,
+    "scoreThreshold": 75,
+    "minDetectionConfidence": 0.55,
+    "minTrackingConfidence": 0.55,
+    "minPosePresenceConfidence": 0.55
+  },
+  "leaderboard": {
+    "limit": 10,
+    "nameMaxLength": 12
+  },
+  "effects": {
+    "defaultQuality": "high",
+    "audioEnabled": true
+  },
+  "poses": [
+    {
+      "id": "mountain",
+      "name": "山式",
+      "englishName": "Mountain Pose",
+      "imagePath": "/assets/poses/mountain.png",
+      "instruction": "雙腳站穩、背挺直，雙手自然放在身體兩旁。",
+      "orientation": "front",
+      "allowMirrored": true,
+      "scoreThreshold": 73,
+      "minimumVisibility": 0.48,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的手臂輕輕伸直。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightShoulder", "rightElbow", "rightWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的手臂輕輕伸直。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftElbow", "leftShoulder", "leftHip"],
+          "target": 12,
+          "tolerance": 18,
+          "weight": 1.2,
+          "hint": "手臂輕輕放回身體兩旁。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightElbow", "rightShoulder", "rightHip"],
+          "target": 12,
+          "tolerance": 18,
+          "weight": 1.2,
+          "hint": "手臂輕輕放回身體兩旁。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftHip", "leftKnee", "leftAnkle"],
+          "target": 175,
+          "tolerance": 15,
+          "weight": 1,
+          "hint": "讓雙腿自然站直，但不要鎖死膝蓋。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightHip", "rightKnee", "rightAnkle"],
+          "target": 175,
+          "tolerance": 15,
+          "weight": 1,
+          "hint": "讓雙腿自然站直，但不要鎖死膝蓋。"
+        },
+        {
+          "type": "distanceRatio",
+          "a": "leftAnkle",
+          "b": "rightAnkle",
+          "referenceA": "leftShoulder",
+          "referenceB": "rightShoulder",
+          "target": 0.5,
+          "tolerance": 0.25,
+          "weight": 0.7,
+          "hint": "調整雙腳距離，保持自然站穩、不交叉。"
+        }
+      ]
+    },
+    {
+      "id": "tree",
+      "name": "樹式",
+      "englishName": "Tree Pose",
+      "imagePath": "/assets/poses/tree.png",
+      "instruction": "單腳站穩，另一隻腳輕靠小腿，雙手在頭頂合十。",
+      "orientation": "front",
+      "allowMirrored": true,
+      "scoreThreshold": 75,
+      "minimumVisibility": 0.42,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 150,
+          "tolerance": 30,
+          "weight": 0.8,
+          "hint": "雙手在頭頂靠近，手肘自然彎曲。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightShoulder", "rightElbow", "rightWrist"],
+          "target": 150,
+          "tolerance": 30,
+          "weight": 0.8,
+          "hint": "雙手在頭頂靠近，手肘自然彎曲。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "leftWrist",
+          "b": "leftShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.65,
+          "tolerance": 0.3,
+          "weight": 1.2,
+          "hint": "把雙手舉到頭頂上方。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightWrist",
+          "b": "rightShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.65,
+          "tolerance": 0.3,
+          "weight": 1.2,
+          "hint": "把雙手舉到頭頂上方。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftHip", "leftKnee", "leftAnkle"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "站立的腿再穩一點。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightHip", "rightKnee", "rightAnkle"],
+          "target": 60,
+          "tolerance": 30,
+          "weight": 1.4,
+          "hint": "抬起一隻腳，膝蓋輕輕朝外打開。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightAnkle",
+          "b": "leftKnee",
+          "axis": "y",
+          "relation": "greater",
+          "margin": 0,
+          "tolerance": 0.2,
+          "weight": 0.6,
+          "hint": "抬起的腳放在膝蓋下方，不要壓在膝蓋上。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightAnkle",
+          "b": "leftAnkle",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.45,
+          "tolerance": 0.25,
+          "weight": 1.2,
+          "hint": "把抬起的腳提高到另一條小腿旁。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightAnkle",
+          "b": "leftKnee",
+          "axis": "x",
+          "relation": "near",
+          "margin": 0.3,
+          "tolerance": 0.2,
+          "weight": 0.8,
+          "hint": "讓抬起的腳輕輕靠近另一條小腿。"
+        }
+      ]
+    },
+    {
+      "id": "warrior-ii",
+      "name": "戰士二式",
+      "englishName": "Warrior II",
+      "imagePath": "/assets/poses/warrior-ii.png",
+      "instruction": "雙腳大步打開，一邊膝蓋彎曲，雙手向兩側伸直。",
+      "orientation": "threeQuarter",
+      "allowMirrored": true,
+      "scoreThreshold": 75,
+      "minimumVisibility": 0.44,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1.1,
+          "hint": "把彎曲的手臂伸直，和肩膀一樣高。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightShoulder", "rightElbow", "rightWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1.1,
+          "hint": "把彎曲的手臂伸直，和肩膀一樣高。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "leftWrist",
+          "b": "leftShoulder",
+          "axis": "y",
+          "relation": "near",
+          "margin": 0.12,
+          "tolerance": 0.2,
+          "weight": 1,
+          "hint": "雙手保持在肩膀高度。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightWrist",
+          "b": "rightShoulder",
+          "axis": "y",
+          "relation": "near",
+          "margin": 0.12,
+          "tolerance": 0.2,
+          "weight": 1,
+          "hint": "雙手保持在肩膀高度。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftHip", "leftKnee", "leftAnkle"],
+          "target": 100,
+          "tolerance": 25,
+          "weight": 2.2,
+          "hint": "前腳膝蓋再彎一點，對準腳踝。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightHip", "rightKnee", "rightAnkle"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1.1,
+          "hint": "後腳保持伸直。"
+        },
+        {
+          "type": "distanceRatio",
+          "a": "leftAnkle",
+          "b": "rightAnkle",
+          "referenceA": "leftShoulder",
+          "referenceB": "rightShoulder",
+          "target": 1.9,
+          "tolerance": 0.55,
+          "weight": 0.9,
+          "hint": "調整雙腳距離，保持穩穩的大步站姿。"
+        }
+      ]
+    },
+    {
+      "id": "chair",
+      "name": "椅子式",
+      "englishName": "Chair Pose",
+      "imagePath": "/assets/poses/chair.png",
+      "instruction": "屁股向後坐、膝蓋彎曲，雙手向上伸直。",
+      "orientation": "threeQuarter",
+      "allowMirrored": true,
+      "scoreThreshold": 75,
+      "minimumVisibility": 0.42,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 170,
+          "tolerance": 22,
+          "weight": 0.9,
+          "hint": "把彎曲的手臂向上伸長。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightShoulder", "rightElbow", "rightWrist"],
+          "target": 170,
+          "tolerance": 22,
+          "weight": 0.9,
+          "hint": "把彎曲的手臂向上伸長。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "leftWrist",
+          "b": "leftShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.65,
+          "tolerance": 0.3,
+          "weight": 1.1,
+          "hint": "把手舉過頭頂。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightWrist",
+          "b": "rightShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.65,
+          "tolerance": 0.3,
+          "weight": 1.1,
+          "hint": "把手舉過頭頂。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftHip", "leftKnee", "leftAnkle"],
+          "target": 120,
+          "tolerance": 25,
+          "weight": 1.3,
+          "hint": "膝蓋再彎一些，像坐在隱形椅子上。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightHip", "rightKnee", "rightAnkle"],
+          "target": 120,
+          "tolerance": 25,
+          "weight": 1.3,
+          "hint": "兩邊膝蓋一起彎曲。"
+        },
+        {
+          "type": "distanceRatio",
+          "a": "leftAnkle",
+          "b": "rightAnkle",
+          "referenceA": "leftShoulder",
+          "referenceB": "rightShoulder",
+          "target": 0.55,
+          "tolerance": 0.3,
+          "weight": 0.7,
+          "hint": "調整雙腳距離，保持平行並穩穩踩地。"
+        }
+      ]
+    },
+    {
+      "id": "star",
+      "name": "星星式",
+      "englishName": "Star Pose",
+      "imagePath": "/assets/poses/star.png",
+      "instruction": "雙腳打開、雙手斜斜舉高，變成一顆大星星。",
+      "orientation": "front",
+      "allowMirrored": true,
+      "scoreThreshold": 75,
+      "minimumVisibility": 0.46,
+      "constraints": [
+        {
+          "type": "angle",
+          "points": ["leftShoulder", "leftElbow", "leftWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的手臂伸直，向斜上方打開。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightShoulder", "rightElbow", "rightWrist"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的手臂伸直，向斜上方打開。"
+        },
+        {
+          "type": "angle",
+          "points": ["leftHip", "leftKnee", "leftAnkle"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的腿自然伸直、踩穩地面。"
+        },
+        {
+          "type": "angle",
+          "points": ["rightHip", "rightKnee", "rightAnkle"],
+          "target": 175,
+          "tolerance": 18,
+          "weight": 1,
+          "hint": "把彎曲的腿自然伸直、踩穩地面。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "leftWrist",
+          "b": "leftShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.35,
+          "tolerance": 0.18,
+          "weight": 1.2,
+          "hint": "手臂斜斜向上打開。"
+        },
+        {
+          "type": "relativePosition",
+          "a": "rightWrist",
+          "b": "rightShoulder",
+          "axis": "y",
+          "relation": "less",
+          "margin": 0.35,
+          "tolerance": 0.18,
+          "weight": 1.2,
+          "hint": "手臂斜斜向上打開。"
+        },
+        {
+          "type": "distanceRatio",
+          "a": "leftAnkle",
+          "b": "rightAnkle",
+          "referenceA": "leftShoulder",
+          "referenceB": "rightShoulder",
+          "target": 1.9,
+          "tolerance": 0.5,
+          "weight": 1,
+          "hint": "調整雙腳距離，站成穩穩的大星星。"
+        },
+        {
+          "type": "distanceRatio",
+          "a": "leftWrist",
+          "b": "rightWrist",
+          "referenceA": "leftShoulder",
+          "referenceB": "rightShoulder",
+          "target": 2.7,
+          "tolerance": 0.7,
+          "weight": 1,
+          "hint": "調整雙手張開的幅度，變成一顆大星星。"
+        }
+      ]
+    }
+  ]
+}

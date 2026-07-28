@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+Test1.vrm
+public/models/Test1.vrm
+.DS_Store
+Thumbs.db
