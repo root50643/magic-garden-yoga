@@ -6,6 +6,7 @@ const trackingConfig: GameConfig["avatarTracking"] = {
   enabled: true,
   maxInferenceFps: 10,
   lowQualityMaxInferenceFps: 6,
+  initializationTimeoutMs: 120_000,
   smoothing: 0.38,
   lostHoldMs: 250,
   relaxMs: 300,

@@ -408,6 +408,13 @@ export function validateGameConfig(value: unknown): GameConfig {
         "avatarTracking.lowQualityMaxInferenceFps 不可高於 avatarTracking.maxInferenceFps。",
       );
     }
+    requiredNumber(
+      avatarTracking,
+      "initializationTimeoutMs",
+      "avatarTracking",
+      issues,
+      { min: 1_000 },
+    );
     requiredNumber(avatarTracking, "smoothing", "avatarTracking", issues, {
       min: 0,
       max: 1,

@@ -64,6 +64,8 @@ public/assets/poses/*.png
 
 Hand／Face Landmarker 分別約 7.46 MiB 與 3.58 MiB。兩者只負責 VRM 手指與表情顯示，可由 `avatarTracking` 關閉；Pose Landmarker 與瑜珈評分仍能獨立運作。模型的固定來源與 SHA-256 見 [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
+GitHub Pages 首次造訪還需要下載 VRM、WASM 與多個 task；較慢的網路可能需要一分鐘以上。`avatarTracking.initializationTimeoutMs` 預設為 120000，避免把仍在下載或編譯的 Hand／Face 模型誤判為失敗。
+
 `public/models/magic-garden-guide.vrm` 是作者 NHRI 製作的 3D 引導角色，會隨公開 GitHub 專案與 GitHub Pages 網站發布，因此正常 clone 後可直接取得。
 
 ## 開發伺服器

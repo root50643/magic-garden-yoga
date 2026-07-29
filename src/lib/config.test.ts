@@ -38,6 +38,7 @@ function validConfig(): GameConfig {
       enabled: true,
       maxInferenceFps: 10,
       lowQualityMaxInferenceFps: 6,
+      initializationTimeoutMs: 120_000,
       smoothing: 0.38,
       lostHoldMs: 250,
       relaxMs: 300,
@@ -164,6 +165,7 @@ describe("validateGameConfig", () => {
     const config = validConfig();
     config.avatarTracking.maxInferenceFps = 0;
     config.avatarTracking.lowQualityMaxInferenceFps = 12;
+    config.avatarTracking.initializationTimeoutMs = 999;
     config.avatarTracking.smoothing = 1.1;
     config.avatarTracking.hands.roiScale = 0;
     config.avatarTracking.face.minPresenceConfidence = -0.1;
@@ -177,6 +179,9 @@ describe("validateGameConfig", () => {
           expect.stringContaining("avatarTracking.maxInferenceFps"),
           expect.stringContaining(
             "avatarTracking.lowQualityMaxInferenceFps",
+          ),
+          expect.stringContaining(
+            "avatarTracking.initializationTimeoutMs",
           ),
           expect.stringContaining("avatarTracking.smoothing"),
           expect.stringContaining("avatarTracking.hands.roiScale"),

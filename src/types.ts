@@ -165,6 +165,7 @@ export interface GameConfig {
     enabled: boolean;
     maxInferenceFps: number;
     lowQualityMaxInferenceFps: number;
+    initializationTimeoutMs: number;
     smoothing: number;
     lostHoldMs: number;
     relaxMs: number;

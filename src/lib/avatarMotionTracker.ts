@@ -244,7 +244,7 @@ export class AvatarMotionTracker {
               "手指與表情模型載入逾時；身體姿勢判定仍可正常使用。",
             ),
           ),
-        45_000,
+        config.initializationTimeoutMs,
       );
     });
     let capabilities: { hands: boolean; face: boolean } | null;
