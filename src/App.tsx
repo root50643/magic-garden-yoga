@@ -44,51 +44,61 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
 
 function avatarDebugFrame(timestampMs: number): AvatarMotionFrame {
   const flexion = ((Math.sin(timestampMs / 850) + 1) / 2) * 1.2;
-  const landmarks = Array.from({ length: 21 }, () => ({
-    x: 0,
-    y: 0,
-    z: 0,
-    visibility: 1,
-    presence: 1,
-  }));
-  const chains = [
-    [1, 2, 3, 4],
-    [5, 6, 7, 8],
-    [9, 10, 11, 12],
-    [13, 14, 15, 16],
-    [17, 18, 19, 20],
-  ];
-  for (const chain of chains) {
-    let x = 0;
-    let y = 1;
-    chain.forEach((index, segmentIndex) => {
-      if (segmentIndex > 0) {
-        const angle = flexion * segmentIndex;
-        x += Math.sin(angle);
-        y += Math.cos(angle);
-      }
-      landmarks[index] = {
-        x,
-        y,
-        z: 0,
+  const debugHand = (side: "left" | "right") => {
+    const sideSign = side === "left" ? 1 : -1;
+    const roll = Math.sin(timestampMs / 1_150) * 0.82 * sideSign;
+    const pitch = Math.sin(timestampMs / 1_730) * 0.28;
+    const rotate = (x: number, y: number, z: number) => {
+      const rollX = x * Math.cos(roll) + z * Math.sin(roll);
+      const rollZ = -x * Math.sin(roll) + z * Math.cos(roll);
+      return {
+        x: rollX,
+        y: y * Math.cos(pitch) - rollZ * Math.sin(pitch),
+        z: y * Math.sin(pitch) + rollZ * Math.cos(pitch),
         visibility: 1,
         presence: 1,
       };
-    });
-  }
+    };
+    const landmarks = Array.from({ length: 21 }, () => rotate(0, 0, 0));
+    landmarks[0] = rotate(0, 0, 0);
+
+    const fingerChains = [
+      { indices: [1, 2, 3, 4], x: -0.68, length: 0.3 },
+      { indices: [5, 6, 7, 8], x: -0.45, length: 0.38 },
+      { indices: [9, 10, 11, 12], x: -0.15, length: 0.42 },
+      { indices: [13, 14, 15, 16], x: 0.17, length: 0.39 },
+      { indices: [17, 18, 19, 20], x: 0.47, length: 0.34 },
+    ];
+    for (const { indices, x, length } of fingerChains) {
+      let y = indices[0] === 1 ? 0.48 : 0.76;
+      let z = 0;
+      indices.forEach((index, segmentIndex) => {
+        if (segmentIndex > 0) {
+          const angle = flexion * segmentIndex * 0.75;
+          y += Math.cos(angle) * length;
+          z += Math.sin(angle) * length;
+        }
+        landmarks[index] = rotate(x * sideSign, y, z);
+      });
+    }
+    return landmarks;
+  };
   const blink = Math.sin(timestampMs / 230) > 0.92 ? 1 : 0;
   const mouth = (Math.sin(timestampMs / 640) + 1) / 2;
 
   return {
     timestampMs,
     inferenceMs: 0,
-    hands: (["left", "right"] as const).map((side) => ({
-      side,
-      landmarks: landmarks.map((point) => ({ ...point })),
-      worldLandmarks: landmarks.map((point) => ({ ...point })),
-      confidence: 1,
-      updatedAtMs: timestampMs,
-    })),
+    hands: (["left", "right"] as const).map((side) => {
+      const landmarks = debugHand(side);
+      return {
+        side,
+        landmarks: landmarks.map((point) => ({ ...point })),
+        worldLandmarks: landmarks.map((point) => ({ ...point })),
+        confidence: 1,
+        updatedAtMs: timestampMs,
+      };
+    }),
     face: {
       updatedAtMs: timestampMs,
       blendshapes: {
@@ -874,6 +884,15 @@ export function App() {
               motionSmoothing={config.avatarTracking.smoothing}
               motionLostHoldMs={config.avatarTracking.lostHoldMs}
               motionRelaxMs={config.avatarTracking.relaxMs}
+              wristRotationEnabled={
+                config.avatarTracking.hands.wristRotationEnabled
+              }
+              wristRotationInfluence={
+                config.avatarTracking.hands.wristRotationInfluence
+              }
+              wristMaxAngleDegrees={
+                config.avatarTracking.hands.wristMaxAngleDegrees
+              }
               reducedMotion={lowMotion}
               onReady={handleVrmReady}
               onError={handleVrmError}

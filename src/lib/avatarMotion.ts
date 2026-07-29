@@ -163,6 +163,15 @@ export interface MotionVector {
   z: number;
 }
 
+export interface PalmBasis {
+  /** Wrist toward the center of the four finger MCP joints. */
+  longitudinal: MotionVector;
+  /** Index MCP toward little-finger MCP. */
+  lateral: MotionVector;
+  /** Right-handed palm normal: longitudinal × lateral. */
+  normal: MotionVector;
+}
+
 export type VrmFaceExpressionName =
   | "aa"
   | "ih"
@@ -191,6 +200,112 @@ function finitePoint(point: Landmark | null | undefined): point is Landmark {
       Number.isFinite(point.x) &&
       Number.isFinite(point.y) &&
       Number.isFinite(point.z),
+  );
+}
+
+function subtract(a: MotionVector, b: MotionVector): MotionVector {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function dot(a: MotionVector, b: MotionVector): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a: MotionVector, b: MotionVector): MotionVector {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function normalize(vector: MotionVector): MotionVector | null {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  if (!Number.isFinite(length) || length <= 1e-6) return null;
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length,
+  };
+}
+
+/**
+ * Builds a stable right-handed frame from the palm rather than a single
+ * finger. Index-to-little establishes anatomical lateral direction for both
+ * hands, so display mirroring never needs to swap sides or negate the result.
+ */
+export function calculatePalmBasisFromPoints(
+  wrist: MotionVector,
+  indexMcp: MotionVector,
+  middleMcp: MotionVector,
+  ringMcp: MotionVector,
+  littleMcp: MotionVector,
+): PalmBasis | null {
+  const palmCenter = {
+    x: (indexMcp.x + middleMcp.x + ringMcp.x + littleMcp.x) / 4,
+    y: (indexMcp.y + middleMcp.y + ringMcp.y + littleMcp.y) / 4,
+    z: (indexMcp.z + middleMcp.z + ringMcp.z + littleMcp.z) / 4,
+  };
+  const longitudinal = normalize(subtract(palmCenter, wrist));
+  if (!longitudinal) return null;
+
+  const rawLateral = subtract(littleMcp, indexMcp);
+  const rawLateralLength = Math.hypot(
+    rawLateral.x,
+    rawLateral.y,
+    rawLateral.z,
+  );
+  if (!Number.isFinite(rawLateralLength) || rawLateralLength <= 1e-5) {
+    return null;
+  }
+  const lateralProjection = dot(rawLateral, longitudinal);
+  const lateralResidual = {
+    x: rawLateral.x - longitudinal.x * lateralProjection,
+    y: rawLateral.y - longitudinal.y * lateralProjection,
+    z: rawLateral.z - longitudinal.z * lateralProjection,
+  };
+  const orthogonalLength = Math.hypot(
+    lateralResidual.x,
+    lateralResidual.y,
+    lateralResidual.z,
+  );
+  if (orthogonalLength / rawLateralLength < 0.15) return null;
+  const lateral = normalize(lateralResidual);
+  if (!lateral) return null;
+
+  const normal = normalize(cross(longitudinal, lateral));
+  if (!normal) return null;
+  // Recompute lateral after the cross product to remove accumulated numeric
+  // skew while preserving index-to-little direction.
+  const orthogonalLateral = normalize(cross(normal, longitudinal));
+  if (!orthogonalLateral) return null;
+
+  return { longitudinal, lateral: orthogonalLateral, normal };
+}
+
+export function calculatePalmBasis(
+  landmarks: readonly Landmark[],
+): PalmBasis | null {
+  const wrist = landmarks[0];
+  const indexMcp = landmarks[5];
+  const middleMcp = landmarks[9];
+  const ringMcp = landmarks[13];
+  const littleMcp = landmarks[17];
+  if (
+    !finitePoint(wrist) ||
+    !finitePoint(indexMcp) ||
+    !finitePoint(middleMcp) ||
+    !finitePoint(ringMcp) ||
+    !finitePoint(littleMcp)
+  ) {
+    return null;
+  }
+  return calculatePalmBasisFromPoints(
+    wrist,
+    indexMcp,
+    middleMcp,
+    ringMcp,
+    littleMcp,
   );
 }
 

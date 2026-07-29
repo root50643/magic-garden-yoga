@@ -28,6 +28,8 @@ import {
 } from "@pixiv/three-vrm";
 import {
   FINGER_JOINT_DEFINITIONS,
+  calculatePalmBasis,
+  calculatePalmBasisFromPoints,
   calculateFingerCurls,
   curlAxisFromRestDirection,
   faceBlendshapesToVrmExpressions,
@@ -36,6 +38,11 @@ import {
   type FingerJointName,
 } from "../lib/avatarMotion";
 import { mediaPipeSegmentToVrmDirection } from "../lib/vrmRetarget";
+import {
+  palmBasisToQuaternion,
+  solveWristLocalQuaternion,
+  type WristRestPose,
+} from "../lib/wristRetarget";
 import type {
   AvatarMotionFrame,
   DetectedPose,
@@ -53,6 +60,9 @@ interface VrmPreviewProps {
   motionSmoothing: number;
   motionLostHoldMs: number;
   motionRelaxMs: number;
+  wristRotationEnabled: boolean;
+  wristRotationInfluence: number;
+  wristMaxAngleDegrees: number;
   reducedMotion: boolean;
   onReady: () => void;
   onError: (message: string) => void;
@@ -76,6 +86,11 @@ interface FingerBinding {
   bone: Object3D;
   restLocalQuaternion: Quaternion;
   curlAxis: Vector3;
+}
+
+interface WristBinding extends WristRestPose {
+  side: HandSide;
+  bone: Object3D;
 }
 
 type ExpressionName =
@@ -245,6 +260,51 @@ function makeFingerBindings(vrm: VRM): FingerBinding[] {
   return bindings;
 }
 
+function makeWristBindings(vrm: VRM): WristBinding[] {
+  vrm.scene.updateMatrixWorld(true);
+  const bindings: WristBinding[] = [];
+
+  for (const side of ["left", "right"] as const) {
+    const prefix = side === "left" ? "left" : "right";
+    const bone = vrm.humanoid.getNormalizedBoneNode(
+      VRMHumanBoneName[
+        side === "left" ? "LeftHand" : "RightHand"
+      ],
+    );
+    const index = vrm.humanoid.getNormalizedBoneNode(
+      `${prefix}IndexProximal` as HumanBoneName,
+    );
+    const middle = vrm.humanoid.getNormalizedBoneNode(
+      `${prefix}MiddleProximal` as HumanBoneName,
+    );
+    const ring = vrm.humanoid.getNormalizedBoneNode(
+      `${prefix}RingProximal` as HumanBoneName,
+    );
+    const little = vrm.humanoid.getNormalizedBoneNode(
+      `${prefix}LittleProximal` as HumanBoneName,
+    );
+    if (!bone || !index || !middle || !ring || !little) continue;
+
+    const basis = calculatePalmBasisFromPoints(
+      bone.getWorldPosition(new Vector3()),
+      index.getWorldPosition(new Vector3()),
+      middle.getWorldPosition(new Vector3()),
+      ring.getWorldPosition(new Vector3()),
+      little.getWorldPosition(new Vector3()),
+    );
+    if (!basis) continue;
+
+    bindings.push({
+      side,
+      bone,
+      restLocalQuaternion: bone.quaternion.clone(),
+      restWorldQuaternion: bone.getWorldQuaternion(new Quaternion()),
+      restPalmWorldQuaternion: palmBasisToQuaternion(basis),
+    });
+  }
+  return bindings;
+}
+
 function motionBlend(smoothing: number, deltaSeconds: number): number {
   const perFrame = Math.min(1, Math.max(0.01, smoothing));
   return 1 - (1 - perFrame) ** Math.max(0, deltaSeconds * 60);
@@ -279,6 +339,42 @@ function retargetFingers(
   return trackedSides;
 }
 
+function retargetWrists(
+  bindings: WristBinding[],
+  motion: AvatarMotionFrame,
+  blend: number,
+  influence: number,
+  maxAngleDegrees: number,
+): Set<HandSide> {
+  const trackedSides = new Set<HandSide>();
+  for (const hand of motion.hands) {
+    // World landmarks preserve the camera-relative 3D palm orientation.
+    // Normalized crop coordinates are sufficient for finger angles but can
+    // distort wrist depth, so they are intentionally not used here.
+    if (hand.worldLandmarks.length < 21) continue;
+    const basis = calculatePalmBasis(hand.worldLandmarks);
+    if (!basis) continue;
+    const binding = bindings.find(({ side }) => side === hand.side);
+    if (!binding?.bone.parent) continue;
+
+    const targetPalmWorldQuaternion = palmBasisToQuaternion(basis, true);
+    const parentWorldQuaternion = binding.bone.parent.getWorldQuaternion(
+      new Quaternion(),
+    );
+    const target = solveWristLocalQuaternion(
+      binding,
+      targetPalmWorldQuaternion,
+      parentWorldQuaternion,
+      influence,
+      maxAngleDegrees,
+    );
+    binding.bone.quaternion.slerp(target, blend);
+    binding.bone.updateMatrixWorld(true);
+    trackedSides.add(hand.side);
+  }
+  return trackedSides;
+}
+
 function relaxFingers(
   bindings: FingerBinding[],
   sides: ReadonlySet<HandSide>,
@@ -287,6 +383,18 @@ function relaxFingers(
   for (const binding of bindings) {
     if (!sides.has(binding.side)) continue;
     binding.bone.quaternion.slerp(binding.restLocalQuaternion, blend);
+  }
+}
+
+function relaxWrists(
+  bindings: WristBinding[],
+  sides: ReadonlySet<HandSide>,
+  blend: number,
+): void {
+  for (const binding of bindings) {
+    if (!sides.has(binding.side)) continue;
+    binding.bone.quaternion.slerp(binding.restLocalQuaternion, blend);
+    binding.bone.updateMatrixWorld(true);
   }
 }
 
@@ -469,6 +577,9 @@ export function VrmPreview({
   motionSmoothing,
   motionLostHoldMs,
   motionRelaxMs,
+  wristRotationEnabled,
+  wristRotationInfluence,
+  wristMaxAngleDegrees,
   reducedMotion,
   onReady,
   onError,
@@ -564,7 +675,12 @@ export function VrmPreview({
     let animationId = 0;
     let currentVrm: VRM | null = null;
     let bindings: SegmentBinding[] = [];
+    let wristBindings: WristBinding[] = [];
     let fingerBindings: FingerBinding[] = [];
+    const wristSeenAt: Record<HandSide, number> = {
+      left: Number.NEGATIVE_INFINITY,
+      right: Number.NEGATIVE_INFINITY,
+    };
     let faceExpressionValues: Partial<Record<ExpressionName, number>> = {};
     let heldFaceTargets: FaceExpressionTargets = {
       ...ZERO_FACE_TARGETS,
@@ -618,6 +734,7 @@ export function VrmPreview({
         fitCamera();
         vrm.scene.updateMatrixWorld(true);
         bindings = makeBindings(vrm);
+        wristBindings = makeWristBindings(vrm);
         fingerBindings = makeFingerBindings(vrm);
         currentVrm = vrm;
         onReady();
@@ -672,7 +789,24 @@ export function VrmPreview({
                 motionBlend(motionSmoothing, delta),
               )
             : new Set<HandSide>();
+        const wristTrackedSides =
+          wristRotationEnabled && motion && freshHands.length > 0
+            ? retargetWrists(
+                wristBindings,
+                { ...motion, hands: freshHands },
+                motionBlend(motionSmoothing, delta),
+                wristRotationInfluence,
+                wristMaxAngleDegrees,
+              )
+            : new Set<HandSide>();
+        for (const side of wristTrackedSides) {
+          // Use receipt time rather than the render time. Re-rendering the
+          // same 10 fps hand frame must not keep an obsolete wrist target
+          // alive forever when later palm geometry is invalid.
+          wristSeenAt[side] = handSeenAtRef.current[side];
+        }
         const staleSides = new Set<HandSide>();
+        const staleWristSides = new Set<HandSide>();
         for (const side of ["left", "right"] as const) {
           if (
             !trackedSides.has(side) &&
@@ -680,12 +814,27 @@ export function VrmPreview({
           ) {
             staleSides.add(side);
           }
+          if (
+            !wristTrackedSides.has(side) &&
+            (!wristRotationEnabled ||
+              now - wristSeenAt[side] > motionLostHoldMs)
+          ) {
+            staleWristSides.add(side);
+          }
         }
         if (staleSides.size > 0) {
           const relaxSeconds = Math.max(0.001, motionRelaxMs / 1000);
           relaxFingers(
             fingerBindings,
             staleSides,
+            1 - Math.exp(-delta / relaxSeconds),
+          );
+        }
+        if (staleWristSides.size > 0) {
+          const relaxSeconds = Math.max(0.001, motionRelaxMs / 1000);
+          relaxWrists(
+            wristBindings,
+            staleWristSides,
             1 - Math.exp(-delta / relaxSeconds),
           );
         }
@@ -752,6 +901,9 @@ export function VrmPreview({
     onError,
     onReady,
     reducedMotion,
+    wristMaxAngleDegrees,
+    wristRotationEnabled,
+    wristRotationInfluence,
   ]);
 
   return (

@@ -463,6 +463,26 @@ export function validateGameConfig(value: unknown): GameConfig {
         "avatarTracking.hands",
         issues,
       );
+      requiredBoolean(
+        hands,
+        "wristRotationEnabled",
+        "avatarTracking.hands",
+        issues,
+      );
+      requiredNumber(
+        hands,
+        "wristRotationInfluence",
+        "avatarTracking.hands",
+        issues,
+        { min: 0, max: 1 },
+      );
+      requiredNumber(
+        hands,
+        "wristMaxAngleDegrees",
+        "avatarTracking.hands",
+        issues,
+        { min: 0, max: 180 },
+      );
       requiredNumber(
         hands,
         "minDetectionConfidence",

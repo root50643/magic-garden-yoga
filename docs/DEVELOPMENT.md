@@ -113,8 +113,8 @@ Pose／Hand／Face task 與 WASM 都在 `public/` 保留本機副本。公開設
 1. `App` 只在 Pose Landmarker 回傳恰好一個人時，把該人的 `DetectedPose` 交給 `AvatarMotionTracker`。
 2. Tracker 依目前畫質選用 `avatarTracking.maxInferenceFps` 或 `lowQualityMaxInferenceFps`，從同一個 video 建立新的 `ImageBitmap`；同一時間最多一幀在途。
 3. Avatar Worker 先平行下載 Hand／Face 模型 buffer，再以不同 loader cache key 依序建立兩個 Landmarker。任一功能下載或初始化失敗只回報該 capability／warning，不讓另一個功能或 Pose Worker 失效。
-4. Worker 回傳可序列化的 `AvatarMotionFrame`；`VrmPreview` 才把它轉成手指骨旋轉與 expression preset。
-5. 沒有人、多人或身體追蹤失效時，App 立即停止提供新的顯示資料。`VrmPreview` 會先維持上一個值 `lostHoldMs`，再將手指與表情平滑放鬆。
+4. Worker 回傳可序列化的 `AvatarMotionFrame`；`VrmPreview` 才把它轉成手腕／手指骨旋轉與 expression preset。
+5. 沒有人、多人或身體追蹤失效時，App 立即停止提供新的顯示資料。`VrmPreview` 會先維持上一個值 `lostHoldMs`，再將手腕、手指與表情平滑放鬆。
 
 Hand／Face task 共用本機 `public/mediapipe/wasm/`。由於 MediaPipe 建立一個 task 後會清除 loader 的 `ModuleFactory`，avatar worker 會為 `hands` 與 `face` 取得 module-aware fileset，並替各自的 `wasmLoaderPath` 加上不同 query cache key。不要移除此隔離，否則第二個 task 可能只在瀏覽器中出現 `ModuleFactory not set.`。
 
@@ -129,10 +129,13 @@ Hand／Face task 共用本機 `public/mediapipe/wasm/`。由於 MediaPipe 建立
 
 這個放大只供手指動畫。姿勢評分仍使用 Pose Landmarker 的 33 點，沒有讀取手部 21 點。
 
-### VRM 手指與表情
+### VRM 手腕、手指與表情
 
 [`../src/lib/avatarMotion.ts`](../src/lib/avatarMotion.ts) 提供不依賴 DOM 的轉換：
 
+- 用 world landmarks 的手腕與四個 MCP 點建立經 Gram–Schmidt 正交化的 3D 掌面 basis；退化或近共線資料不產生旋轉。
+- VRM 載入時以 `Hand`、`IndexProximal`、`MiddleProximal`、`RingProximal`、`LittleProximal` 的世界位置建立模型休息 basis。每幀先完成前臂 retarget，再由當前 parent world quaternion 解出 Hand bone 的 local quaternion。
+- 手腕旋轉相對 rest pose 限幅、依 `wristRotationInfluence` 混合並沿用時間式平滑；只有 `worldLandmarks` 可用，ROI normalized z 不參與手腕 3D 方向。
 - 用 21 點三點夾角算出五指各關節的彎曲量；鏡像不改變角度。
 - 以 VRM normalized hand bones 的 rest direction 推導彎曲軸，從 rest quaternion 插值，避免每幀累加造成漂移。
 - 把 Face Landmarker 的 ARKit-like blendshapes 正規化成 VRM `aa`、`ih`、`ou`、`ee`、`oh`、左右眨眼、`happy` 與 `surprised`。
@@ -142,7 +145,7 @@ Hand／Face task 共用本機 `public/mediapipe/wasm/`。由於 MediaPipe 建立
 
 ### 評分隔離
 
-`AvatarMotionFrame` 沒有進入 `evaluatePose`、`HoldTracker` 或遊戲狀態機。回歸測試 [`../src/lib/avatarMotionIsolation.integration.test.ts`](../src/lib/avatarMotionIsolation.integration.test.ts) 會在手指與表情資料大幅改變前後比較同一份身體 pose，要求分數完全相同。未來若新增視線、頭部或更細手勢，也必須維持這個 display-only 邊界，除非產品需求明確改變並另行設計評分規則。
+`AvatarMotionFrame` 沒有進入 `evaluatePose`、`HoldTracker` 或遊戲狀態機。回歸測試 [`../src/lib/avatarMotionIsolation.integration.test.ts`](../src/lib/avatarMotionIsolation.integration.test.ts) 會在手腕、手指與表情資料大幅改變前後比較同一份身體 pose，要求分數完全相同。未來若新增視線、頭部或更細手勢，也必須維持這個 display-only 邊界，除非產品需求明確改變並另行設計評分規則。
 
 ### 平滑
 
@@ -184,6 +187,7 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 [`../src/components/VrmPreview.tsx`](../src/components/VrmPreview.tsx)：
 
 - 以 Three.js／VRM Humanoid normalized bones 驅動左右上臂、前臂、大腿、小腿與腳掌。
+- 依模型實際 rest palm basis 驅動左右 Hand bone，不硬寫左右手旋轉正負。
 - 使用明確的骨骼父子鏈取得 rest direction，不依賴不穩定的 `children[0]`。
 - MediaPipe 到 VRM 的方向轉換保留解剖學 X 左右，反轉 Y 與 Z。
 - 先估算軀幹側傾，再解算四肢，降低父骨骼更新後把手腳帶歪的情況。

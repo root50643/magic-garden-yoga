@@ -36,6 +36,9 @@
       "modelPath": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "roiScale": 1.6,
       "handednessSwap": false,
+      "wristRotationEnabled": true,
+      "wristRotationInfluence": 0.85,
+      "wristMaxAngleDegrees": 105,
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5

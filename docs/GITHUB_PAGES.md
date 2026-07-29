@@ -164,7 +164,7 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 - [ ] Console 沒有 404、mixed content、Worker、WebAssembly 或 WebGL 錯誤。
 - [ ] 攝影機權限、單人／多人提示、全身入鏡與分數都正常。
 - [ ] VRM 左右手腳、鏡像顯示與每關門檻符合設定。
-- [ ] `?avatarDebug=1` 可帶動 VRM 左右手指與表情；移除參數後，真人 Hand／Face Landmarker 亦可使用。
+- [ ] `?avatarDebug=1` 可帶動 VRM 左右手腕、手指與表情；移除參數後，真人 Hand／Face Landmarker 亦可使用。
 - [ ] Hand／Face task 或追蹤暫時失效時只顯示非致命提醒，不影響姿勢分數與保持進度。
 - [ ] 重新載入頁面後遊戲仍能初始化。
 

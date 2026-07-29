@@ -63,6 +63,9 @@ pnpm build
       "modelPath": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "roiScale": 1.6,
       "handednessSwap": false,
+      "wristRotationEnabled": true,
+      "wristRotationInfluence": 0.85,
+      "wristMaxAngleDegrees": 105,
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5
@@ -165,7 +168,7 @@ pnpm build
 
 ## `avatarTracking`
 
-這一組 MediaPipe Hand／Face Landmarker 只產生 `AvatarMotionFrame`，交給 VRM 顯示手指彎曲、眨眼、嘴型、微笑與驚訝表情。評分器、`HoldTracker` 與排行榜只接收 `PoseFrame`；因此更改本節參數、偵測不到手／臉，或模型載入失敗，都不會提高、降低或阻止瑜珈分數。
+這一組 MediaPipe Hand／Face Landmarker 只產生 `AvatarMotionFrame`，交給 VRM 顯示手掌／手腕方向、手指彎曲、眨眼、嘴型、微笑與驚訝表情。評分器、`HoldTracker` 與排行榜只接收 `PoseFrame`；因此更改本節參數、偵測不到手／臉，或模型載入失敗，都不會提高、降低或阻止瑜珈分數。
 
 ### 共用欄位
 
@@ -189,6 +192,9 @@ pnpm build
 | `modelPath` | 非空字串 | MediaPipe Hand Landmarker `.task` URL |
 | `roiScale` | 有限數字，`> 0` | 以 Pose 肩寬為基準的手腕裁切範圍；預設 1.6 |
 | `handednessSwap` | boolean | 只在手指明顯套到另一側 VRM 手時交換左右；不應用來實作鏡像畫面 |
+| `wristRotationEnabled` | boolean | 是否以手掌 3D 朝向驅動 VRM `leftHand`／`rightHand` 骨 |
+| `wristRotationInfluence` | 有限數字，0–1 | 手腕追蹤影響量；預設 0.85，降低可減少抖動或模型骨軸差異造成的誇張旋轉 |
+| `wristMaxAngleDegrees` | 有限數字，0–180 | 相對模型休息姿勢的最大手腕旋轉；預設 105°，避免錯誤點造成整隻手翻轉 |
 | `minDetectionConfidence` | 有限數字，0–1 | 初次手部偵測信心門檻 |
 | `minPresenceConfidence` | 有限數字，0–1 | 手部存在信心門檻 |
 | `minTrackingConfidence` | 有限數字，0–1 | 影片手部追蹤信心門檻 |
@@ -202,6 +208,8 @@ pnpm build
 - 一次只改 0.1–0.2，實測雙臂垂下、舉高、向兩側伸直及手靠近臉的情況。
 
 `handednessSwap` 與 `avatar.mirrored` 是不同問題：前者交換追蹤資料送到哪一隻 VRM 手；後者只是把最終 canvas 水平翻轉。一般情況維持 `false`，只在逐側握拳驗證證明左右相反時才設為 `true`。
+
+手腕方向只使用 Hand Landmarker 的 21 個 world landmarks。程式以手腕點 0 與四個掌指關節點 5、9、13、17 建立正交手掌座標系，再和 VRM 實際手骨的休息座標系對齊；因此不需要硬編碼左右 Euler 角。若手腕太敏感，先降低 `wristRotationInfluence`；若正常翻掌被限制，再小幅提高 `wristMaxAngleDegrees`。`avatar.mirrored` 仍只改畫面，不參與這項計算。
 
 ### `avatarTracking.face`
 

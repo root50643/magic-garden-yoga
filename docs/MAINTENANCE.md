@@ -124,7 +124,7 @@ Pose 模型輸出的關鍵點順序或 world coordinate 行為如果改變，既
 2. 建置後載入至少一個 VRM 1.0 模型；如仍支援舊素材，也測 VRM 0.x。
 3. 檢查 Humanoid normalized bone API、`VRMUtils.rotateVRM0`、材質、陰影、模型 bounds 與 dispose 行為。
 4. 以不對稱動作驗證左右：只舉左手、只彎右膝、單腳點地。
-5. 使用 `?avatarDebug=1` 檢查左右五指骨、眨眼、張嘴 `aa` 與 `happy` preset，再用真人逐側張手／握拳及其他嘴型驗證。
+5. 使用 `?avatarDebug=1` 檢查左右手腕翻掌、五指骨、眨眼、張嘴 `aa` 與 `happy` preset，再用真人逐側翻掌、張手／握拳及其他嘴型驗證。
 6. 切換 `avatar.mirrored`，確認只翻畫面、不讓骨骼跨過軀幹；它也不應改變 `handednessSwap`。
 7. 檢查 GPU／記憶體：重整或重新進入時不應持續增加 WebGL context。
 
@@ -379,18 +379,19 @@ Worker 初始化錯誤會被應用程式捕捉並顯示在頁面，因此主頁 
 
 VRM 未準備完成會阻止「開始」按鈕；攝影機仍可顯示並不代表模型成功。
 
-### 手指或表情不同步
+### 手腕、手指或表情不同步
 
 先區分「額外顯示追蹤失敗」與「VRM 不支援該動作」：
 
 1. 在 Network 確認 `hand_landmarker.task`、`face_landmarker.task`、loader 與 WASM 全部回應 200，不是 HTML 錯誤頁。
 2. 檢查準備畫面的非致命提醒，以及 portal 元素的 `data-hand-tracking`、`data-face-tracking`、`data-avatar-progress`；這些狀態不會出現在瑜珈分數。
-3. 開啟 `?avatarDebug=1`。若合成動作也不顯示，優先檢查 VRM 標準手指骨與 expression preset；若 debug 正常、真人不正常，再查 MediaPipe、光線與 ROI。
+3. 開啟 `?avatarDebug=1`。合成資料會週期性翻動左右手腕、彎指、眨眼與張嘴；若手腕不動，先檢查 VRM `leftHand`／`rightHand` 與近端指骨，若 debug 正常、真人不正常，再查 MediaPipe、光線與 ROI。
 4. 真人測試時保持全身入鏡，但讓手指輪廓朝向鏡頭、避免手掌貼在衣服或臉上。快速移動後停住半秒，排除正常節流和平滑。
-5. 逐側張手／握拳。若左手資料始終套到右手，先確認不是 `avatar.mirrored` 造成觀看錯覺；確定解剖學左右真的錯誤後，才切換 `avatarTracking.hands.handednessSwap`。
+5. 逐側翻掌、張手／握拳。若左手資料始終套到右手，先確認不是 `avatar.mirrored` 造成觀看錯覺；確定解剖學左右真的錯誤後，才切換 `avatarTracking.hands.handednessSwap`。
 6. 手常被裁掉時稍微提高 `roiScale`；手在 ROI 內太小時稍微降低。每次改 0.1–0.2，並重測手放下、舉高、側伸與靠近臉。
 7. 臉部要接近正面、均勻受光，眼睛與嘴巴不可被口罩、頭髮或手遮住。只有部分表情無反應時，檢查 VRM 是否有對應 preset。
-8. 追蹤消失後仍短暫維持是 `lostHoldMs` 的預期行為；手指回復太慢時降低 `relaxMs`，回復太突兀時提高。
+8. 手腕旋轉太大或抖動時先降低 `wristRotationInfluence`；合理翻掌被截斷時再提高 `wristMaxAngleDegrees`。不要用 `handednessSwap` 或 `avatar.mirrored` 修正旋轉幅度。
+9. 追蹤消失後仍短暫維持是 `lostHoldMs` 的預期行為；手腕／手指回復太慢時降低 `relaxMs`，回復太突兀時提高。
 
 手／臉 tracker 故障、被關閉或當下看不到都不應改變姿勢總分、保持光環或排行榜資格。若它們連帶使闖關停止，先執行：
 

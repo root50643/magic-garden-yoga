@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Landmark } from "../types";
 import {
   FINGER_JOINT_DEFINITIONS,
+  calculatePalmBasis,
   calculateFingerCurls,
   calculateJointCurl,
   curlAxisFromRestDirection,
@@ -77,6 +78,80 @@ describe("finger motion", () => {
       y: 0,
       z: 1,
     });
+  });
+});
+
+describe("palm orientation", () => {
+  it("builds an orthonormal frame from wrist and four MCP joints", () => {
+    const landmarks = Array.from({ length: 21 }, () => point(0, 0));
+    landmarks[0] = point(0, 0);
+    landmarks[5] = point(-0.6, 1);
+    landmarks[9] = point(-0.2, 1.2);
+    landmarks[13] = point(0.2, 1.15);
+    landmarks[17] = point(0.6, 1);
+
+    const basis = calculatePalmBasis(landmarks);
+
+    expect(basis).not.toBeNull();
+    expect(basis?.longitudinal.y).toBeGreaterThan(0.98);
+    expect(basis?.lateral.x).toBeGreaterThan(0.98);
+    expect(basis?.normal.z).toBeLessThan(-0.98);
+    const dotProduct =
+      (basis?.longitudinal.x ?? 0) * (basis?.lateral.x ?? 0) +
+      (basis?.longitudinal.y ?? 0) * (basis?.lateral.y ?? 0) +
+      (basis?.longitudinal.z ?? 0) * (basis?.lateral.z ?? 0);
+    expect(dotProduct).toBeCloseTo(0, 8);
+  });
+
+  it("rejects collapsed or nearly collinear palm geometry", () => {
+    const collapsed = Array.from({ length: 21 }, () => point(0, 0));
+    expect(calculatePalmBasis(collapsed)).toBeNull();
+
+    const collinear = Array.from({ length: 21 }, () => point(0, 0));
+    collinear[0] = point(0, 0);
+    collinear[5] = point(0, 0.8);
+    collinear[9] = point(0, 1);
+    collinear[13] = point(0, 1.2);
+    collinear[17] = point(0, 1.4);
+    expect(calculatePalmBasis(collinear)).toBeNull();
+  });
+
+  it("is unchanged by hand translation and uniform scale", () => {
+    const landmarks = Array.from({ length: 21 }, () => point(0, 0));
+    landmarks[0] = point(0.1, -0.2, 0.15);
+    landmarks[5] = point(-0.55, 0.9, -0.05);
+    landmarks[9] = point(-0.15, 1.15, 0.04);
+    landmarks[13] = point(0.25, 1.1, 0.08);
+    landmarks[17] = point(0.62, 0.88, -0.02);
+    const transformed = landmarks.map((entry) =>
+      point(
+        entry.x * 3.4 + 8,
+        entry.y * 3.4 - 5,
+        entry.z * 3.4 + 2,
+      ),
+    );
+
+    const original = calculatePalmBasis(landmarks);
+    const scaled = calculatePalmBasis(transformed);
+    expect(original).not.toBeNull();
+    expect(scaled).not.toBeNull();
+    for (const axis of ["longitudinal", "lateral", "normal"] as const) {
+      expect(scaled?.[axis].x).toBeCloseTo(original?.[axis].x ?? 0, 10);
+      expect(scaled?.[axis].y).toBeCloseTo(original?.[axis].y ?? 0, 10);
+      expect(scaled?.[axis].z).toBeCloseTo(original?.[axis].z ?? 0, 10);
+    }
+  });
+
+  it("rejects non-finite palm points", () => {
+    const landmarks = Array.from({ length: 21 }, () => point(0, 0));
+    landmarks[0] = point(0, 0);
+    landmarks[5] = point(-0.5, 1);
+    landmarks[9] = point(-0.15, 1.1);
+    landmarks[13] = point(0.18, 1.08);
+    landmarks[17] = point(0.5, 1);
+    landmarks[9].z = Number.NaN;
+
+    expect(calculatePalmBasis(landmarks)).toBeNull();
   });
 });
 

@@ -9,7 +9,7 @@
 ## 目前功能
 
 - MediaPipe Pose Landmarker 在 Web Worker 中執行，最多辨識兩人並阻止多人狀態累積進度。
-- 額外的 MediaPipe Hand／Face Landmarker 在獨立 Worker 中帶動 VRM 手指、眨眼與嘴型；這些資料只供人物顯示，完全不參與瑜珈分數或保持計時。
+- 額外的 MediaPipe Hand／Face Landmarker 在獨立 Worker 中帶動 VRM 手腕、手指、眨眼與嘴型；這些資料只供人物顯示，完全不參與瑜珈分數或保持計時。
 - `@pixiv/three-vrm` 載入 VRM，準備畫面會即時帶動人物的軀幹、手臂、腿、腳掌、手指與模型已提供的表情。
 - 內建山式、樹式、戰士二式、椅子式、星星式；關卡數量由 `game.json` 決定。
 - 每關可以獨立設定通過分數與保持秒數；未設定時使用全域預設值。
@@ -90,7 +90,10 @@ pnpm preview
       "enabled": true,
       "modelPath": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "roiScale": 1.6,
-      "handednessSwap": false
+      "handednessSwap": false,
+      "wristRotationEnabled": true,
+      "wristRotationInfluence": 0.85,
+      "wristMaxAngleDegrees": 105
     },
     "face": {
       "enabled": true,

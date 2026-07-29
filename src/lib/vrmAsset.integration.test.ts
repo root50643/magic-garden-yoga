@@ -69,6 +69,8 @@ describe("shipped VRM guide model", () => {
     const humanBones = extension.humanoid?.humanBones ?? {};
     const presets = extension.expressions?.preset ?? {};
 
+    expect(humanBones).toHaveProperty("leftHand");
+    expect(humanBones).toHaveProperty("rightHand");
     for (const definition of FINGER_JOINT_DEFINITIONS) {
       expect(humanBones, `缺少 ${definition.leftBone}`).toHaveProperty(
         definition.leftBone,

@@ -174,6 +174,9 @@ export interface GameConfig {
       modelPath: string;
       roiScale: number;
       handednessSwap: boolean;
+      wristRotationEnabled: boolean;
+      wristRotationInfluence: number;
+      wristMaxAngleDegrees: number;
       minDetectionConfidence: number;
       minPresenceConfidence: number;
       minTrackingConfidence: number;

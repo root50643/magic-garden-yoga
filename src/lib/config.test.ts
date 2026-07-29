@@ -47,6 +47,9 @@ function validConfig(): GameConfig {
         modelPath: "/models/hand_landmarker.task",
         roiScale: 1.6,
         handednessSwap: false,
+        wristRotationEnabled: true,
+        wristRotationInfluence: 0.85,
+        wristMaxAngleDegrees: 105,
         minDetectionConfidence: 0.5,
         minPresenceConfidence: 0.5,
         minTrackingConfidence: 0.5,
@@ -168,6 +171,11 @@ describe("validateGameConfig", () => {
     config.avatarTracking.initializationTimeoutMs = 999;
     config.avatarTracking.smoothing = 1.1;
     config.avatarTracking.hands.roiScale = 0;
+    (
+      config.avatarTracking.hands as unknown as Record<string, unknown>
+    ).wristRotationEnabled = "yes";
+    config.avatarTracking.hands.wristRotationInfluence = 1.1;
+    config.avatarTracking.hands.wristMaxAngleDegrees = 181;
     config.avatarTracking.face.minPresenceConfidence = -0.1;
 
     expect(() => validateGameConfig(config)).toThrow(ConfigValidationError);
@@ -185,6 +193,15 @@ describe("validateGameConfig", () => {
           ),
           expect.stringContaining("avatarTracking.smoothing"),
           expect.stringContaining("avatarTracking.hands.roiScale"),
+          expect.stringContaining(
+            "avatarTracking.hands.wristRotationEnabled",
+          ),
+          expect.stringContaining(
+            "avatarTracking.hands.wristRotationInfluence",
+          ),
+          expect.stringContaining(
+            "avatarTracking.hands.wristMaxAngleDegrees",
+          ),
           expect.stringContaining(
             "avatarTracking.face.minPresenceConfidence",
           ),

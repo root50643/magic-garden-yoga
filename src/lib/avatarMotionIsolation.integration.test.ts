@@ -20,7 +20,7 @@ function landmark(index: number): Landmark {
 }
 
 describe("avatar motion scoring isolation", () => {
-  it("cannot change a yoga score when fingers and expressions change", () => {
+  it("cannot change a yoga score when wrists, fingers and expressions change", () => {
     const pose: DetectedPose = {
       landmarks: POSE_LANDMARK_NAMES.map((_, index) => landmark(index)),
       worldLandmarks: POSE_LANDMARK_NAMES.map((_, index) =>
@@ -66,4 +66,3 @@ describe("avatar motion scoring isolation", () => {
     expect(after).toEqual(before);
   });
 });
-
