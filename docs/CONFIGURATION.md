@@ -50,6 +50,30 @@ pnpm build
     "minTrackingConfidence": 0.55,
     "minPosePresenceConfidence": 0.55
   },
+  "avatarTracking": {
+    "enabled": true,
+    "maxInferenceFps": 10,
+    "lowQualityMaxInferenceFps": 6,
+    "smoothing": 0.38,
+    "lostHoldMs": 250,
+    "relaxMs": 300,
+    "hands": {
+      "enabled": true,
+      "modelPath": "/models/hand_landmarker.task",
+      "roiScale": 1.6,
+      "handednessSwap": false,
+      "minDetectionConfidence": 0.5,
+      "minPresenceConfidence": 0.5,
+      "minTrackingConfidence": 0.5
+    },
+    "face": {
+      "enabled": true,
+      "modelPath": "/models/face_landmarker.task",
+      "minDetectionConfidence": 0.5,
+      "minPresenceConfidence": 0.5,
+      "minTrackingConfidence": 0.5
+    }
+  },
   "leaderboard": {
     "limit": 10,
     "nameMaxLength": 12
@@ -95,6 +119,7 @@ pnpm build
 | `avatar` | 物件 | 是 | VRM 顯示設定 |
 | `timing` | 物件 | 是 | 倒數、保持、寬限與轉場時間 |
 | `poseDetection` | 物件 | 是 | MediaPipe 模型、效能、信心值與全域分數預設 |
+| `avatarTracking` | 物件 | 是 | 顯示專用的手指／表情追蹤；不參與姿勢分數 |
 | `leaderboard` | 物件 | 是 | 本機排行榜規則 |
 | `effects` | 物件 | 是 | 畫質與音效預設 |
 | `poses` | 非空陣列 | 是 | 依陣列順序出現的關卡 |
@@ -136,6 +161,64 @@ pnpm build
 三個 MediaPipe confidence 影響「模型是否產生／持續追蹤 pose」，不同於 `minimumVisibility`。把它們調低可能在暗處更常產生骨架，也可能增加錯誤骨架；把它們調高則可能讓骨架頻繁消失。一次只改一項並做真人測試。
 
 `maxInferenceFps` 不是畫面 FPS。攝影機與動畫仍可維持較高更新率，只有姿勢推論被節流。低效能電腦可先試 12–15；太低會使動作回饋和 500 ms 寬限顯得不連續。
+
+## `avatarTracking`
+
+這一組 MediaPipe Hand／Face Landmarker 只產生 `AvatarMotionFrame`，交給 VRM 顯示手指彎曲、眨眼、嘴型、微笑與驚訝表情。評分器、`HoldTracker` 與排行榜只接收 `PoseFrame`；因此更改本節參數、偵測不到手／臉，或模型載入失敗，都不會提高、降低或阻止瑜珈分數。
+
+### 共用欄位
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `enabled` | boolean | 手部與臉部顯示同步的總開關；`false` 時不啟動額外 Worker 推論 |
+| `maxInferenceFps` | 有限數字，`> 0` | 額外手／臉推論的最高 FPS；預設 10，與 `poseDetection.maxInferenceFps` 分開 |
+| `lowQualityMaxInferenceFps` | 有限數字，`> 0` 且不高於 `maxInferenceFps` | 切換成「節能光效」時的額外手／臉推論上限；預設 6 |
+| `smoothing` | 有限數字，`> 0` 且 `<= 1` | VRM 手指與表情的插值速度；較小較平滑但延遲較明顯，較大回應較快 |
+| `lostHoldMs` | 有限數字，`>= 0` | 短暫漏掉手或臉時，維持上一個顯示值的時間 |
+| `relaxMs` | 有限數字，`> 0` | 超過 `lostHoldMs` 後，手指回到模型休息姿勢的平滑時間；臉部表情會依內建表情平滑值回到 0 |
+
+即使 `enabled` 為 `false`，目前設定驗證仍要求 `hands`、`face` 與其他欄位完整存在；這讓重新開啟功能時不會使用未驗證的隱含預設值。
+
+### `avatarTracking.hands`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `enabled` | boolean | 是否載入 Hand Landmarker 並驅動 VRM 標準手指骨 |
+| `modelPath` | 非空字串 | MediaPipe Hand Landmarker `.task` URL |
+| `roiScale` | 有限數字，`> 0` | 以 Pose 肩寬為基準的手腕裁切範圍；預設 1.6 |
+| `handednessSwap` | boolean | 只在手指明顯套到另一側 VRM 手時交換左右；不應用來實作鏡像畫面 |
+| `minDetectionConfidence` | 有限數字，0–1 | 初次手部偵測信心門檻 |
+| `minPresenceConfidence` | 有限數字，0–1 | 手部存在信心門檻 |
+| `minTrackingConfidence` | 有限數字，0–1 | 影片手部追蹤信心門檻 |
+
+玩家要全身入鏡時，原始畫面中的手通常很小。額外 Worker 先利用 Pose Landmarker 的左右手腕、拇指、食指與小指附近點，分別裁出左右手 ROI，再把兩個區域放大到固定的 320 × 320 面板後交給 Hand Landmarker。這只改善人物顯示，不會把 21 個手部點送進瑜珈評分器。
+
+調整 `roiScale` 時請注意：
+
+- 較大會包含更多手腕周圍範圍，比較不怕 Pose 手腕點偏移，但手在面板內會較小、背景也更多。
+- 較小會讓手在面板內更大，但快速揮手或張開手指時比較容易被裁掉。
+- 一次只改 0.1–0.2，實測雙臂垂下、舉高、向兩側伸直及手靠近臉的情況。
+
+`handednessSwap` 與 `avatar.mirrored` 是不同問題：前者交換追蹤資料送到哪一隻 VRM 手；後者只是把最終 canvas 水平翻轉。一般情況維持 `false`，只在逐側握拳驗證證明左右相反時才設為 `true`。
+
+### `avatarTracking.face`
+
+| 欄位 | 型別／範圍 | 說明 |
+| --- | --- | --- |
+| `enabled` | boolean | 是否載入 Face Landmarker 並驅動 VRM 表情 |
+| `modelPath` | 非空字串 | MediaPipe Face Landmarker `.task` URL |
+| `minDetectionConfidence` | 有限數字，0–1 | 初次臉部偵測信心門檻 |
+| `minPresenceConfidence` | 有限數字，0–1 | 臉部存在信心門檻 |
+| `minTrackingConfidence` | 有限數字，0–1 | 影片臉部追蹤信心門檻 |
+
+Face Landmarker 只要求一張臉，輸出 blendshape 係數；目前不輸出臉部網格或頭部 transformation matrix。程式會把相關係數映射到 VRM 的 `blinkLeft`／`blinkRight`（缺少時使用共用 `blink`）、`aa`、`ih`、`ou`、`ee`、`oh`、`happy` 與 `surprised` preset。模型沒有某個 expression preset 時會直接略過，不是致命錯誤。
+
+### 效能與故障隔離
+
+- 額外追蹤只有在 Pose Landmarker 確認畫面中恰好一人時才送出影格；沒有人或多人時不保留新的手／臉資料。
+- 手／臉使用與身體追蹤不同的 Worker、節流上限與可序列化資料契約。手或臉其中一個模型失敗時，另一個仍可啟動。
+- 初始化或推論失敗會在準備畫面顯示非致命提醒；身體追蹤、分數、保持進度與「開始」條件不依賴此功能。
+- 低效能裝置先把 `avatarTracking.lowQualityMaxInferenceFps` 從 6 降到 5 或 4，並切換成「節能光效」；仍不足時個別把 `hands.enabled` 或 `face.enabled` 設為 `false`。不要先降低瑜珈的 `poseDetection.maxInferenceFps`。
 
 ## `leaderboard`
 
@@ -419,10 +502,12 @@ http://localhost:5173/?poseDebug=1
 }
 ```
 
-3. 在準備頁測試模型高度、取景、面向、左右手腳與腳掌。
+3. 在準備頁測試模型高度、取景、面向、左右手腳、腳掌、每根手指與表情。
 4. 視需要調整 `scale` 與 `cameraDistance`。
 
-模型需要有效的 VRM Humanoid 骨架。缺少某些標準骨骼時，該段可能維持原姿勢；表情、頭部細節與手指目前不由 Pose Landmarker 完整驅動。
+模型需要有效的 VRM Humanoid 骨架。身體同步使用 normalized 軀幹與四肢骨；手部同步另外使用 VRM 標準拇指、食指、中指、無名指與小指骨。缺少某個標準骨時，該段會維持模型原姿勢。臉部同步只會寫入模型實際提供的 VRM expression preset；模型沒有眨眼或母音表情時，對應動作不會顯示。
+
+可先用 `?avatarDebug=1` 讓程式合成彎指、眨眼、張嘴與微笑訊號，確認新 VRM 的骨架及對應 preset；接著仍要關閉 debug，以真人攝影機逐側握拳、張手、眨眼、不同嘴型與微笑，確認追蹤及左右方向。
 
 預設模型是 `public/models/magic-garden-guide.vrm`，作者為 NHRI。模型會隨公開 GitHub 專案與 GitHub Pages 網站發布。
 

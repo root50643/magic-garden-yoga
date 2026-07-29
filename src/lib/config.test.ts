@@ -34,6 +34,30 @@ function validConfig(): GameConfig {
       minTrackingConfidence: 0.6,
       minPosePresenceConfidence: 0.6,
     },
+    avatarTracking: {
+      enabled: true,
+      maxInferenceFps: 10,
+      lowQualityMaxInferenceFps: 6,
+      smoothing: 0.38,
+      lostHoldMs: 250,
+      relaxMs: 300,
+      hands: {
+        enabled: true,
+        modelPath: "/models/hand_landmarker.task",
+        roiScale: 1.6,
+        handednessSwap: false,
+        minDetectionConfidence: 0.5,
+        minPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      },
+      face: {
+        enabled: true,
+        modelPath: "/models/face_landmarker.task",
+        minDetectionConfidence: 0.5,
+        minPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      },
+    },
     leaderboard: {
       limit: 10,
       nameMaxLength: 12,
@@ -134,6 +158,34 @@ describe("validateGameConfig", () => {
         config.poseDetection.scoreThreshold,
       ),
     ).toBe(75);
+  });
+
+  it("validates display-only hand and face tracking parameters", () => {
+    const config = validConfig();
+    config.avatarTracking.maxInferenceFps = 0;
+    config.avatarTracking.lowQualityMaxInferenceFps = 12;
+    config.avatarTracking.smoothing = 1.1;
+    config.avatarTracking.hands.roiScale = 0;
+    config.avatarTracking.face.minPresenceConfidence = -0.1;
+
+    expect(() => validateGameConfig(config)).toThrow(ConfigValidationError);
+    try {
+      validateGameConfig(config);
+    } catch (error) {
+      expect((error as ConfigValidationError).issues).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("avatarTracking.maxInferenceFps"),
+          expect.stringContaining(
+            "avatarTracking.lowQualityMaxInferenceFps",
+          ),
+          expect.stringContaining("avatarTracking.smoothing"),
+          expect.stringContaining("avatarTracking.hands.roiScale"),
+          expect.stringContaining(
+            "avatarTracking.face.minPresenceConfidence",
+          ),
+        ]),
+      );
+    }
   });
 
   it("reports all nested problems with actionable Traditional Chinese paths", () => {

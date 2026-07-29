@@ -63,7 +63,10 @@ MediaPipe 是最需要成套更新的部分。目前 JavaScript 套件、本機 
 package.json: @mediapipe/tasks-vision
 public/mediapipe/wasm/*
 public/models/pose_landmarker_full.task
+public/models/hand_landmarker.task
+public/models/face_landmarker.task
 src/workers/pose.worker.ts
+src/workers/avatar.worker.ts
 ```
 
 安全更新流程：
@@ -95,7 +98,23 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 7. 在支援 SIMD 與不支援 SIMD 的目標裝置上至少各測一次；若沒有舊裝置，仍須確認 no-SIMD 檔案可被部署。
 8. 檢查 Network 面板中 loader、WASM、task 都是 200，且沒有從未知 CDN 載入。
 
-模型輸出的關鍵點順序或 world coordinate 行為如果改變，既有姿勢校準值可能全部需要重測。
+目前顯示追蹤模型的可重現基準：
+
+| 檔案 | 固定版官方來源 | 位元組 | SHA-256 |
+| --- | --- | ---: | --- |
+| `hand_landmarker.task` | [Hand Landmarker float16 v1](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task) | 7,819,105 | `fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1` |
+| `face_landmarker.task` | [Face Landmarker float16 v1](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task) | 3,758,596 | `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff` |
+
+下載後在 PowerShell 驗證：
+
+```powershell
+Get-FileHash -Algorithm SHA256 public/models/hand_landmarker.task
+Get-FileHash -Algorithm SHA256 public/models/face_landmarker.task
+```
+
+不要在建置或瀏覽器執行階段改用 `latest` URL；把固定版檔案納入版本控制，才能讓 Pages、離線校內環境與日後回溯使用同一內容。
+
+Pose 模型輸出的關鍵點順序或 world coordinate 行為如果改變，既有姿勢校準值可能全部需要重測。Hand／Face 模型只影響 VRM 顯示；更新後要重測手指與表情，但不應為此修改瑜珈 constraint 或分數門檻。若分數跟著手／臉模型改變，代表 display-only 邊界發生回歸。
 
 ### 更新 Three.js 與 `@pixiv/three-vrm`
 
@@ -105,8 +124,9 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 2. 建置後載入至少一個 VRM 1.0 模型；如仍支援舊素材，也測 VRM 0.x。
 3. 檢查 Humanoid normalized bone API、`VRMUtils.rotateVRM0`、材質、陰影、模型 bounds 與 dispose 行為。
 4. 以不對稱動作驗證左右：只舉左手、只彎右膝、單腳點地。
-5. 切換 `avatar.mirrored`，確認只翻畫面、不讓骨骼跨過軀幹。
-6. 檢查 GPU／記憶體：重整或重新進入時不應持續增加 WebGL context。
+5. 使用 `?avatarDebug=1` 檢查左右五指骨、眨眼、張嘴 `aa` 與 `happy` preset，再用真人逐側張手／握拳及其他嘴型驗證。
+6. 切換 `avatar.mirrored`，確認只翻畫面、不讓骨骼跨過軀幹；它也不應改變 `handednessSwap`。
+7. 檢查 GPU／記憶體：重整或重新進入時不應持續增加 WebGL context。
 
 ### 更新 React、Vite 或 TypeScript
 
@@ -249,8 +269,8 @@ location.reload();
 目前設計：
 
 - `getUserMedia` 只要求 video，明確設定 `audio: false`。
-- 每幀轉成 `ImageBitmap` 後在本機 Worker 處理。
-- Worker 只回傳關鍵點與推論時間。
+- 每幀轉成 `ImageBitmap` 後在本機 Pose／Avatar Worker 處理。
+- Worker 只回傳身體／手部關鍵點、臉部 blendshape 係數與推論時間；不回傳影像或臉部網格。
 - 不錄影、不截圖、不上傳影像、不呼叫辨識後端。
 - 暱稱與成績只寫入本機 Local Storage。
 
@@ -316,7 +336,7 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 
 `true` 指示 MediaPipe 使用 module-aware loader。排查：
 
-1. 確認 `src/workers/pose.worker.ts` 仍保留第二個參數 `true`。
+1. 確認 `src/workers/pose.worker.ts` 與 `src/workers/avatar.worker.ts` 的 fileset 初始化仍保留第二個參數 `true`。
 2. 在 DevTools Network 搜尋 `vision_wasm`，確認對應 JS 與 WASM 都是 HTTP 200，而不是 404、HTML 錯誤頁或被代理登入頁取代。
 3. 確認 `public/mediapipe/wasm/` 的六個檔案來自與 `@mediapipe/tasks-vision` 相同版本。
 4. 確認 `game.json` 的 `wasmPath` 是目錄 `/mediapipe/wasm`，不是某一個檔名。
@@ -325,7 +345,9 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 7. 清除該 origin 的快取；若部署環境有 CDN／service worker，也清除舊 loader。專案本身目前沒有 service worker。
 8. 用 `pnpm build && pnpm preview` 測正式輸出，以區分 HMR 與部署問題。
 
-Worker 初始化錯誤會被應用程式捕捉並顯示在頁面，因此主頁 Console 可能沒有未捕捉例外。應同時檢查 Network，以及 DevTools Sources／Threads 中名為 `magic-garden-pose-tracker` 的 Worker。
+Avatar Worker 會連續建立 Hand 與 Face task。MediaPipe 建立 task 後可能清除 `ModuleFactory`，所以程式替兩個 loader URL 加上 `?task=hands`／`?task=face` cache key。若只有第二個 tracker 報錯，確認這段隔離仍存在，不要把兩個 URL 合併回同一個已快取 module。
+
+Worker 初始化錯誤會被應用程式捕捉並顯示在頁面，因此主頁 Console 可能沒有未捕捉例外。應同時檢查 Network，以及 DevTools Sources／Threads 中名為 `magic-garden-pose-tracker` 與 `magic-garden-avatar-motion` 的 Worker。Avatar Worker 錯誤只會顯示非致命提醒；若仍可做姿勢並累積進度，這是預期的故障隔離。
 
 不要用全域 `<script>` 臨時載入 classic loader 來繞過問題；那會讓 dev 與 build 行為不一致。
 
@@ -356,6 +378,27 @@ Worker 初始化錯誤會被應用程式捕捉並顯示在頁面，因此主頁 
 - DevTools 檢查 WebGL context、GPU blocklist 與記憶體問題。
 
 VRM 未準備完成會阻止「開始」按鈕；攝影機仍可顯示並不代表模型成功。
+
+### 手指或表情不同步
+
+先區分「額外顯示追蹤失敗」與「VRM 不支援該動作」：
+
+1. 在 Network 確認 `hand_landmarker.task`、`face_landmarker.task`、loader 與 WASM 全部回應 200，不是 HTML 錯誤頁。
+2. 檢查準備畫面的非致命提醒，以及 portal 元素的 `data-hand-tracking`、`data-face-tracking`、`data-avatar-progress`；這些狀態不會出現在瑜珈分數。
+3. 開啟 `?avatarDebug=1`。若合成動作也不顯示，優先檢查 VRM 標準手指骨與 expression preset；若 debug 正常、真人不正常，再查 MediaPipe、光線與 ROI。
+4. 真人測試時保持全身入鏡，但讓手指輪廓朝向鏡頭、避免手掌貼在衣服或臉上。快速移動後停住半秒，排除正常節流和平滑。
+5. 逐側張手／握拳。若左手資料始終套到右手，先確認不是 `avatar.mirrored` 造成觀看錯覺；確定解剖學左右真的錯誤後，才切換 `avatarTracking.hands.handednessSwap`。
+6. 手常被裁掉時稍微提高 `roiScale`；手在 ROI 內太小時稍微降低。每次改 0.1–0.2，並重測手放下、舉高、側伸與靠近臉。
+7. 臉部要接近正面、均勻受光，眼睛與嘴巴不可被口罩、頭髮或手遮住。只有部分表情無反應時，檢查 VRM 是否有對應 preset。
+8. 追蹤消失後仍短暫維持是 `lostHoldMs` 的預期行為；手指回復太慢時降低 `relaxMs`，回復太突兀時提高。
+
+手／臉 tracker 故障、被關閉或當下看不到都不應改變姿勢總分、保持光環或排行榜資格。若它們連帶使闖關停止，先執行：
+
+```bash
+pnpm test src/lib/avatarMotionIsolation.integration.test.ts
+```
+
+再檢查是否有人把 `AvatarMotionFrame` 接進 `evaluatePose`、`HoldTracker` 或 ready 條件。
 
 ### 正確度分數偏低或進度不動
 
@@ -396,7 +439,8 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 
 - 切換右上角為「節能光效」。
 - 在作業系統啟用減少動態效果。
-- 把 `maxInferenceFps` 從 20 逐步降到 15 或 12。
+- 切換成「節能光效」，再把顯示專用的 `avatarTracking.lowQualityMaxInferenceFps` 從 6 降到 5 或 4；仍不足時關閉 `avatarTracking.face.enabled` 或 `avatarTracking.hands.enabled`。
+- 身體評分仍不足時，再把 `poseDetection.maxInferenceFps` 從 20 逐步降到 15 或 12。
 - 關閉其他使用 GPU／攝影機的分頁與程式。
 - 確認瀏覽器啟用硬體加速。
 - 降低 VRM 材質、貼圖與多邊形複雜度。
@@ -421,6 +465,8 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 - [ ] 正式 `challengeId`、標題、姿勢順序、每關門檻與保持秒數已確認。
 - [ ] `game.json` 引用的每個圖片、task、WASM 目錄與 VRM 都存在。
 - [ ] `?poseDebug=1` 已由多位真人完成正向與負向校準。
+- [ ] `?avatarDebug=1` 已驗證 VRM 左右手指骨與表情 preset；移除參數後也完成真人手／臉追蹤。
+- [ ] 改變手指與臉部動作不會改變姿勢分數、保持進度或排行榜資格。
 - [ ] Chrome、Edge 各完成一次從允許權限到五關完成與排行榜提交。
 - [ ] 倒數與轉場不計時；跳過後不能寫榜。
 - [ ] 多人、無人、遮擋與出框不累積進度。
@@ -443,6 +489,7 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 - [ ] `git remote -v` 的 push 目標是團隊自己的儲存庫，不是 SystemAnimatorOnline。
 - [ ] `public/models/magic-garden-guide.vrm` 已納入預期提交與建置內容，公開頁面能成功載入。
 - [ ] 正式 VRM、姿勢圖片、MediaPipe task／WASM 與所有套件的檔名及版本已有記錄。
+- [ ] Hand／Face task 的位元組大小與 SHA-256 符合固定版資產紀錄。
 - [ ] `THIRD_PARTY_NOTICES.md` 已更新。
 - [ ] 未提交 `.env`、憑證、私鑰、日誌、攝影機截圖或測試者個資。
 - [ ] README 與 `docs/` 反映目前命令、欄位與限制。
@@ -451,6 +498,7 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 
 - [ ] 從另一台未快取的電腦開啟正式 Pages URL。
 - [ ] 重新授予攝影機權限並完成至少一關。
+- [ ] 在正式 URL 逐側張手／握拳、眨眼與張嘴；遮住手或臉時身體闖關仍可繼續。
 - [ ] 確認瀏覽器沒有 mixed content、WASM、Worker、WebGL 或 404 錯誤。
 - [ ] 記錄發布 commit、日期、正式 `challengeId`、模型版本與回復方式。
 - [ ] 保留上一個可部署的 commit 或 artifact，以便回滾。

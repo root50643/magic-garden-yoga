@@ -1,6 +1,6 @@
 # GitHub Pages 部署手冊
 
-本文件說明如何把「魔法花園瑜珈闖關」以 GitHub Actions 自動建置並部署到 GitHub Pages，以及發布後如何驗證攝影機、VRM、MediaPipe 與子路徑資產。
+本文件說明如何把「魔法花園瑜珈闖關」以 GitHub Actions 自動建置並部署到 GitHub Pages，以及發布後如何驗證攝影機、VRM、MediaPipe 身體／手部／臉部追蹤與子路徑資產。
 
 ## 部署目標
 
@@ -134,8 +134,9 @@ VITE_BASE_PATH=/magic-garden-yoga/ pnpm preview
 2. 在網站要求權限時選擇允許攝影機。
 3. 若曾封鎖，從網址列的網站權限清除或改為允許，再重新載入。
 4. 確認畫面顯示鏡像攝影機、骨架與 VRM，而不是只顯示其中一項。
-5. 完成至少一個姿勢，確認 Worker 推論、分數與保持計時均正常。
-6. 在 Chrome 與 Edge 各驗證一次；再用一台未快取過網站的電腦進行完整五關測試。
+5. 逐側張手／握拳、眨眼與張嘴，確認 VRM 手指和表情同步；故意遮住手或臉時，身體姿勢分數仍應正常。
+6. 完成至少一個姿勢，確認 Pose Worker 推論、分數與保持計時均正常。
+7. 在 Chrome 與 Edge 各驗證一次；再用一台未快取過網站的電腦進行完整五關測試。
 
 GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用。若未來把網站放進另一個頁面的 iframe，父頁還必須允許 camera，且 Permissions Policy 不可阻擋。
 
@@ -145,6 +146,7 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 - [ ] workflow 中的 `VITE_BASE_PATH` 仍與 `/magic-garden-yoga/` 一致。
 - [ ] `public/config/game.json` 的模型、圖片、task 與 WASM 路徑全部存在。
 - [ ] `public/models/magic-garden-guide.vrm` 已納入提交，檔名大小寫完全一致。
+- [ ] `public/models/hand_landmarker.task` 與 `face_landmarker.task` 已納入提交，SHA-256 符合 `THIRD_PARTY_NOTICES.md`。
 - [ ] `pnpm install --frozen-lockfile`、typecheck、test、build 全部通過。
 - [ ] repository 未包含憑證、token、`.env`、攝影機截圖或學生個資。
 - [ ] 模型、姿勢圖片與 `THIRD_PARTY_NOTICES.md` 的檔名及作者資訊一致。
@@ -156,12 +158,14 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 
 - [ ] 頁面 URL 位於 `/magic-garden-yoga/`。
 - [ ] HTML、JS、CSS、`config/game.json` 都回應 200。
-- [ ] `magic-garden-guide.vrm`、五張姿勢圖與
-  `pose_landmarker_full.task` 回應 200。
+- [ ] `magic-garden-guide.vrm`、五張姿勢圖、`pose_landmarker_full.task`、
+  `hand_landmarker.task` 與 `face_landmarker.task` 回應 200。
 - [ ] MediaPipe WASM loader 與 `.wasm` 回應 200；`.wasm` 使用合理 MIME。
 - [ ] Console 沒有 404、mixed content、Worker、WebAssembly 或 WebGL 錯誤。
 - [ ] 攝影機權限、單人／多人提示、全身入鏡與分數都正常。
 - [ ] VRM 左右手腳、鏡像顯示與每關門檻符合設定。
+- [ ] `?avatarDebug=1` 可帶動 VRM 左右手指與表情；移除參數後，真人 Hand／Face Landmarker 亦可使用。
+- [ ] Hand／Face task 或追蹤暫時失效時只顯示非致命提醒，不影響姿勢分數與保持進度。
 - [ ] 重新載入頁面後遊戲仍能初始化。
 
 建議記錄成功部署的 commit SHA、日期、Pages URL、`challengeId` 與模型版本。這能在日後更新造成問題時快速比對或回滾。
@@ -177,14 +181,14 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 - 若 repository 曾改名，必須同步更新 base、預計 URL 與文件，再重新建置。
 - 不要把本機以 `/` 建出的 `dist/` 手動上傳來取代 workflow artifact。
 
-### 頁面可開，但 VRM、姿勢圖、設定或 WASM 404
+### 頁面可開，但 VRM、姿勢圖、設定、task 或 WASM 404
 
 這通常表示 Vite bundle base 正確，但執行階段 public 資產路徑沒有經過
 `resolvePublicAssetPath()`：
 
 1. 在 Network 記下失敗 URL；若它從網域根目錄 `/models/...` 或
    `/config/...` 開始而缺少 `/magic-garden-yoga/`，優先檢查路徑解析。
-2. 確認載入設定、VRM、姿勢圖、task 與 WASM 的程式都使用共用 resolver。
+2. 確認載入設定、VRM、姿勢圖、Pose／Hand／Face task 與 WASM 的程式都使用共用 resolver。
 3. 確認 `dist/` 中存在對應檔案，並檢查 Linux runner 對大小寫敏感的檔名。
 4. 不要直接把 JSON 每個路徑硬編碼成 repository 名稱；那會破壞 localhost 與未來自訂網域。
 
@@ -192,6 +196,7 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 
 - 先在 Network 檢查 MediaPipe loader 與 WASM 是否 200，而不是 404 回傳的 HTML。
 - 確認 task／WASM 路徑含 Pages base，且 JS、WASM 的內容與套件版本相容。
+- 若只有 Hand／Face 其中第二個 task 失敗，確認 avatar worker 仍替兩次 module loader 使用不同的 `?task=hands`／`?task=face` cache key。
 - 清除網站資料或使用無痕視窗排除舊 loader 快取。
 - 比對本機 Pages-base preview；若本機也失敗，先修正 build／路徑，不要反覆重新部署。
 

@@ -23,6 +23,30 @@
     "minTrackingConfidence": 0.55,
     "minPosePresenceConfidence": 0.55
   },
+  "avatarTracking": {
+    "enabled": true,
+    "maxInferenceFps": 10,
+    "lowQualityMaxInferenceFps": 6,
+    "smoothing": 0.38,
+    "lostHoldMs": 250,
+    "relaxMs": 300,
+    "hands": {
+      "enabled": true,
+      "modelPath": "/models/hand_landmarker.task",
+      "roiScale": 1.6,
+      "handednessSwap": false,
+      "minDetectionConfidence": 0.5,
+      "minPresenceConfidence": 0.5,
+      "minTrackingConfidence": 0.5
+    },
+    "face": {
+      "enabled": true,
+      "modelPath": "/models/face_landmarker.task",
+      "minDetectionConfidence": 0.5,
+      "minPresenceConfidence": 0.5,
+      "minTrackingConfidence": 0.5
+    }
+  },
   "leaderboard": {
     "limit": 10,
     "nameMaxLength": 12

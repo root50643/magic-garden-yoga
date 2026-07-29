@@ -16,13 +16,24 @@
 
 | 套件 | 用途 | 套件標示授權 |
 | --- | --- | --- |
-| `@mediapipe/tasks-vision` | 本機姿勢關鍵點偵測 | Apache-2.0 |
+| `@mediapipe/tasks-vision` | 本機身體、手部與臉部追蹤 | Apache-2.0 |
 | `@pixiv/three-vrm` | VRM 載入與 humanoid API | MIT |
 | `three` | WebGL 3D 顯示 | MIT |
 | `react`、`react-dom` | UI | MIT |
 | `vite`、`typescript`、`vitest` | 建置與測試 | MIT / Apache-2.0（依個別套件） |
 
-本專案包含供瀏覽器本機載入的 MediaPipe Pose Landmarker task 與其 WASM 執行檔；發布時應一併保留相應授權與通知。
+本專案包含供瀏覽器本機載入的 MediaPipe Pose／Hand／Face Landmarker task 與其 WASM 執行檔；發布時應一併保留相應授權與通知。所有推論都在使用者瀏覽器本機執行。
+
+### 顯示用 Hand／Face Landmarker 模型
+
+下列模型只用來帶動 VRM 手指與表情，不納入瑜珈姿勢評分。專案保存固定版檔案，不在執行階段向 Google 下載：
+
+| 專案檔案 | 官方固定版來源 | 位元組 | SHA-256 |
+| --- | --- | ---: | --- |
+| `public/models/hand_landmarker.task` | [MediaPipe Hand Landmarker float16 v1](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task) | 7,819,105 | `fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1` |
+| `public/models/face_landmarker.task` | [MediaPipe Face Landmarker float16 v1](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task) | 3,758,596 | `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff` |
+
+功能與輸出格式可參考 Google AI Edge 的 [Hand Landmarker Web 指南](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js) 與 [Face Landmarker Web 指南](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/web_js)。若更新模型，應重新確認官方來源、授權、模型相容性、檔案大小與 SHA-256，並同步修改本表及維護文件。
 
 ## `magic-garden-guide.vrm`
 

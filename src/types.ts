@@ -55,6 +55,35 @@ export interface PoseFrame {
   inferenceMs: number;
 }
 
+export type HandSide = "left" | "right";
+
+export interface DetectedHand {
+  side: HandSide;
+  landmarks: Landmark[];
+  worldLandmarks: Landmark[];
+  confidence: number;
+  updatedAtMs: number;
+}
+
+export interface FaceMotion {
+  blendshapes: Record<string, number>;
+  updatedAtMs: number;
+}
+
+/**
+ * Display-only motion from the optional hand and face trackers.
+ *
+ * This is deliberately separate from `PoseFrame`: yoga scoring and hold
+ * timing accept body pose data only, so finger/face tracking can never change
+ * a challenge score.
+ */
+export interface AvatarMotionFrame {
+  timestampMs: number;
+  hands: DetectedHand[];
+  face: FaceMotion | null;
+  inferenceMs: number;
+}
+
 export interface AngleConstraint {
   type: "angle";
   points: [LandmarkName, LandmarkName, LandmarkName];
@@ -131,6 +160,30 @@ export interface GameConfig {
     minDetectionConfidence: number;
     minTrackingConfidence: number;
     minPosePresenceConfidence: number;
+  };
+  avatarTracking: {
+    enabled: boolean;
+    maxInferenceFps: number;
+    lowQualityMaxInferenceFps: number;
+    smoothing: number;
+    lostHoldMs: number;
+    relaxMs: number;
+    hands: {
+      enabled: boolean;
+      modelPath: string;
+      roiScale: number;
+      handednessSwap: boolean;
+      minDetectionConfidence: number;
+      minPresenceConfidence: number;
+      minTrackingConfidence: number;
+    };
+    face: {
+      enabled: boolean;
+      modelPath: string;
+      minDetectionConfidence: number;
+      minPresenceConfidence: number;
+      minTrackingConfidence: number;
+    };
   };
   leaderboard: {
     limit: number;

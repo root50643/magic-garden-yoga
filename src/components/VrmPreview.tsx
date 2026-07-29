@@ -8,6 +8,7 @@ import {
   MathUtils,
   Mesh,
   MeshStandardMaterial,
+  Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   Quaternion,
@@ -20,12 +21,27 @@ import {
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
   VRM,
+  VRMExpressionPresetName,
   VRMHumanBoneName,
   VRMLoaderPlugin,
   VRMUtils,
 } from "@pixiv/three-vrm";
+import {
+  FINGER_JOINT_DEFINITIONS,
+  calculateFingerCurls,
+  curlAxisFromRestDirection,
+  faceBlendshapesToVrmExpressions,
+  halfLifeAlpha,
+  type FaceExpressionTargets,
+  type FingerJointName,
+} from "../lib/avatarMotion";
 import { mediaPipeSegmentToVrmDirection } from "../lib/vrmRetarget";
-import type { DetectedPose, Landmark } from "../types";
+import type {
+  AvatarMotionFrame,
+  DetectedPose,
+  HandSide,
+  Landmark,
+} from "../types";
 
 interface VrmPreviewProps {
   modelPath: string;
@@ -33,19 +49,46 @@ interface VrmPreviewProps {
   cameraDistance: number;
   mirrored: boolean;
   pose: DetectedPose | null;
+  avatarMotion: AvatarMotionFrame | null;
+  motionSmoothing: number;
+  motionLostHoldMs: number;
+  motionRelaxMs: number;
   reducedMotion: boolean;
   onReady: () => void;
   onError: (message: string) => void;
 }
 
+type HumanBoneName =
+  (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
+
 interface SegmentBinding {
-  boneName: (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
-  childBoneName: (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
+  boneName: HumanBoneName;
+  childBoneName: HumanBoneName;
   start: number;
   end: number;
   restWorldDirection: Vector3;
   restWorldQuaternion: Quaternion;
 }
+
+interface FingerBinding {
+  side: HandSide;
+  jointName: FingerJointName;
+  bone: Object3D;
+  restLocalQuaternion: Quaternion;
+  curlAxis: Vector3;
+}
+
+type ExpressionName =
+  | "aa"
+  | "ih"
+  | "ou"
+  | "ee"
+  | "oh"
+  | "blink"
+  | "blinkLeft"
+  | "blinkRight"
+  | "happy"
+  | "surprised";
 
 const SEGMENTS = [
   {
@@ -142,6 +185,222 @@ function makeBindings(vrm: VRM): SegmentBinding[] {
   });
 }
 
+function makeFingerBindings(vrm: VRM): FingerBinding[] {
+  vrm.scene.updateMatrixWorld(true);
+  const bindings: FingerBinding[] = [];
+
+  for (const side of ["left", "right"] as const) {
+    for (const definition of FINGER_JOINT_DEFINITIONS) {
+      const boneName =
+        side === "left" ? definition.leftBone : definition.rightBone;
+      const childBoneName =
+        side === "left"
+          ? definition.leftChildBone
+          : definition.rightChildBone;
+      const bone = vrm.humanoid.getNormalizedBoneNode(
+        boneName as HumanBoneName,
+      );
+      if (!bone) continue;
+
+      const bonePosition = bone.getWorldPosition(new Vector3());
+      let restDirection: Vector3 | null = null;
+      if (childBoneName) {
+        const child = vrm.humanoid.getNormalizedBoneNode(
+          childBoneName as HumanBoneName,
+        );
+        if (child) {
+          restDirection = child
+            .getWorldPosition(new Vector3())
+            .sub(bonePosition)
+            .normalize();
+        }
+      }
+      if (!restDirection && bone.parent) {
+        restDirection = bonePosition
+          .clone()
+          .sub(bone.parent.getWorldPosition(new Vector3()))
+          .normalize();
+      }
+      if (!restDirection || restDirection.lengthSq() < 0.0001) continue;
+
+      const derivedAxis = curlAxisFromRestDirection(restDirection);
+      const axisWorld = derivedAxis
+        ? new Vector3(derivedAxis.x, derivedAxis.y, derivedAxis.z)
+        : new Vector3(0, 0, side === "left" ? -1 : 1);
+      const restWorldQuaternion = bone.getWorldQuaternion(new Quaternion());
+      const curlAxis = axisWorld
+        .applyQuaternion(restWorldQuaternion.clone().invert())
+        .normalize();
+
+      bindings.push({
+        side,
+        jointName: definition.name,
+        bone,
+        restLocalQuaternion: bone.quaternion.clone(),
+        curlAxis,
+      });
+    }
+  }
+
+  return bindings;
+}
+
+function motionBlend(smoothing: number, deltaSeconds: number): number {
+  const perFrame = Math.min(1, Math.max(0.01, smoothing));
+  return 1 - (1 - perFrame) ** Math.max(0, deltaSeconds * 60);
+}
+
+function retargetFingers(
+  bindings: FingerBinding[],
+  motion: AvatarMotionFrame,
+  blend: number,
+): Set<HandSide> {
+  const trackedSides = new Set<HandSide>();
+  for (const hand of motion.hands) {
+    const landmarks =
+      hand.worldLandmarks.length >= 21
+        ? hand.worldLandmarks
+        : hand.landmarks;
+    if (landmarks.length < 21) continue;
+    trackedSides.add(hand.side);
+    const curls = calculateFingerCurls(landmarks);
+    for (const binding of bindings) {
+      if (binding.side !== hand.side) continue;
+      const curlRotation = new Quaternion().setFromAxisAngle(
+        binding.curlAxis,
+        curls[binding.jointName],
+      );
+      const target = binding.restLocalQuaternion
+        .clone()
+        .multiply(curlRotation);
+      binding.bone.quaternion.slerp(target, blend);
+    }
+  }
+  return trackedSides;
+}
+
+function relaxFingers(
+  bindings: FingerBinding[],
+  sides: ReadonlySet<HandSide>,
+  blend: number,
+): void {
+  for (const binding of bindings) {
+    if (!sides.has(binding.side)) continue;
+    binding.bone.quaternion.slerp(binding.restLocalQuaternion, blend);
+  }
+}
+
+const ZERO_FACE_TARGETS: FaceExpressionTargets = {
+  aa: 0,
+  ih: 0,
+  ou: 0,
+  ee: 0,
+  oh: 0,
+  blinkLeft: 0,
+  blinkRight: 0,
+  happy: 0,
+  surprised: 0,
+};
+
+const EXPRESSION_PRESETS: Record<
+  Exclude<ExpressionName, "blink">,
+  (typeof VRMExpressionPresetName)[keyof typeof VRMExpressionPresetName]
+> = {
+  aa: VRMExpressionPresetName.Aa,
+  ih: VRMExpressionPresetName.Ih,
+  ou: VRMExpressionPresetName.Ou,
+  ee: VRMExpressionPresetName.Ee,
+  oh: VRMExpressionPresetName.Oh,
+  blinkLeft: VRMExpressionPresetName.BlinkLeft,
+  blinkRight: VRMExpressionPresetName.BlinkRight,
+  happy: VRMExpressionPresetName.Happy,
+  surprised: VRMExpressionPresetName.Surprised,
+};
+
+function applyFaceExpressions(
+  vrm: VRM,
+  targets: FaceExpressionTargets,
+  currentValues: Partial<Record<ExpressionName, number>>,
+  deltaSeconds: number,
+  smoothing: number,
+): void {
+  const manager = vrm.expressionManager;
+  if (!manager) return;
+  const speedScale = Math.max(0.2, smoothing / 0.38);
+
+  const write = (
+    name: ExpressionName,
+    preset: string,
+    target: number,
+    attackHalfLife: number,
+    releaseHalfLife: number,
+  ) => {
+    if (!manager.getExpression(preset)) return;
+    const current = currentValues[name] ?? 0;
+    const halfLife =
+      (target > current ? attackHalfLife : releaseHalfLife) / speedScale;
+    const next =
+      current +
+      (target - current) *
+        halfLifeAlpha(deltaSeconds, halfLife);
+    currentValues[name] = next;
+    manager.setValue(preset, next);
+  };
+
+  for (const name of ["aa", "ih", "ou", "ee", "oh"] as const) {
+    write(name, EXPRESSION_PRESETS[name], targets[name], 0.06, 0.09);
+  }
+  write(
+    "happy",
+    EXPRESSION_PRESETS.happy,
+    targets.happy,
+    0.075,
+    0.12,
+  );
+  write(
+    "surprised",
+    EXPRESSION_PRESETS.surprised,
+    targets.surprised,
+    0.055,
+    0.11,
+  );
+
+  const hasLeftBlink = Boolean(
+    manager.getExpression(VRMExpressionPresetName.BlinkLeft),
+  );
+  const hasRightBlink = Boolean(
+    manager.getExpression(VRMExpressionPresetName.BlinkRight),
+  );
+  if (hasLeftBlink || hasRightBlink) {
+    if (hasLeftBlink) {
+      write(
+        "blinkLeft",
+        VRMExpressionPresetName.BlinkLeft,
+        targets.blinkLeft,
+        0.025,
+        0.045,
+      );
+    }
+    if (hasRightBlink) {
+      write(
+        "blinkRight",
+        VRMExpressionPresetName.BlinkRight,
+        targets.blinkRight,
+        0.025,
+        0.045,
+      );
+    }
+  } else {
+    write(
+      "blink",
+      VRMExpressionPresetName.Blink,
+      (targets.blinkLeft + targets.blinkRight) / 2,
+      0.025,
+      0.045,
+    );
+  }
+}
+
 function retargetPose(
   vrm: VRM,
   bindings: SegmentBinding[],
@@ -206,16 +465,36 @@ export function VrmPreview({
   cameraDistance,
   mirrored,
   pose,
+  avatarMotion,
+  motionSmoothing,
+  motionLostHoldMs,
+  motionRelaxMs,
   reducedMotion,
   onReady,
   onError,
 }: VrmPreviewProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const poseRef = useRef<DetectedPose | null>(pose);
+  const avatarMotionRef = useRef<AvatarMotionFrame | null>(avatarMotion);
+  const handSeenAtRef = useRef<Record<HandSide, number>>({
+    left: Number.NEGATIVE_INFINITY,
+    right: Number.NEGATIVE_INFINITY,
+  });
+  const faceSeenAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => {
     poseRef.current = pose;
   }, [pose]);
+
+  useEffect(() => {
+    avatarMotionRef.current = avatarMotion;
+    if (!avatarMotion) return;
+    const receivedAt = performance.now();
+    for (const hand of avatarMotion.hands) {
+      handSeenAtRef.current[hand.side] = receivedAt;
+    }
+    if (avatarMotion.face) faceSeenAtRef.current = receivedAt;
+  }, [avatarMotion]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -285,6 +564,11 @@ export function VrmPreview({
     let animationId = 0;
     let currentVrm: VRM | null = null;
     let bindings: SegmentBinding[] = [];
+    let fingerBindings: FingerBinding[] = [];
+    let faceExpressionValues: Partial<Record<ExpressionName, number>> = {};
+    let heldFaceTargets: FaceExpressionTargets = {
+      ...ZERO_FACE_TARGETS,
+    };
     let fittedModelSize: Vector3 | null = null;
     const timer = new Timer();
     timer.connect(document);
@@ -334,6 +618,7 @@ export function VrmPreview({
         fitCamera();
         vrm.scene.updateMatrixWorld(true);
         bindings = makeBindings(vrm);
+        fingerBindings = makeFingerBindings(vrm);
         currentVrm = vrm;
         onReady();
       },
@@ -370,6 +655,60 @@ export function VrmPreview({
           currentVrm.scene.rotation.y =
             Math.sin(elapsed * 0.7) * (reducedMotion ? 0.01 : 0.025);
         }
+
+        const now = performance.now();
+        const motion = avatarMotionRef.current;
+        const freshHands = motion
+          ? motion.hands.filter(
+              ({ side }) =>
+                now - handSeenAtRef.current[side] <= motionLostHoldMs,
+            )
+          : [];
+        const trackedSides =
+          motion && freshHands.length > 0
+            ? retargetFingers(
+                fingerBindings,
+                { ...motion, hands: freshHands },
+                motionBlend(motionSmoothing, delta),
+              )
+            : new Set<HandSide>();
+        const staleSides = new Set<HandSide>();
+        for (const side of ["left", "right"] as const) {
+          if (
+            !trackedSides.has(side) &&
+            now - handSeenAtRef.current[side] > motionLostHoldMs
+          ) {
+            staleSides.add(side);
+          }
+        }
+        if (staleSides.size > 0) {
+          const relaxSeconds = Math.max(0.001, motionRelaxMs / 1000);
+          relaxFingers(
+            fingerBindings,
+            staleSides,
+            1 - Math.exp(-delta / relaxSeconds),
+          );
+        }
+
+        if (
+          motion?.face &&
+          now - faceSeenAtRef.current <= motionLostHoldMs
+        ) {
+          heldFaceTargets = faceBlendshapesToVrmExpressions(
+            motion.face.blendshapes,
+          );
+        } else if (
+          now - faceSeenAtRef.current > motionLostHoldMs
+        ) {
+          heldFaceTargets = ZERO_FACE_TARGETS;
+        }
+        applyFaceExpressions(
+          currentVrm,
+          heldFaceTargets,
+          faceExpressionValues,
+          delta,
+          motionSmoothing,
+        );
         currentVrm.update(delta);
       }
 
@@ -391,6 +730,7 @@ export function VrmPreview({
       cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
       timer.dispose();
+      currentVrm?.expressionManager?.resetValues();
       currentVrm?.scene.traverse((object) => {
         if (!(object instanceof Mesh)) return;
         object.geometry?.dispose();
@@ -406,6 +746,9 @@ export function VrmPreview({
     cameraDistance,
     modelPath,
     modelScale,
+    motionLostHoldMs,
+    motionRelaxMs,
+    motionSmoothing,
     onError,
     onReady,
     reducedMotion,

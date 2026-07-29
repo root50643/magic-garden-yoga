@@ -9,7 +9,7 @@
 | 作業系統 | Windows 10/11、macOS 或一般 Linux | Windows 11 |
 | Node.js | 20.19 | 目前維護中的 Node.js LTS |
 | pnpm | 專案指定 `pnpm@11.9.0` | 由 Corepack 管理 |
-| 瀏覽器 | 支援 WebAssembly、Web Worker、WebGL、`getUserMedia` 與 `createImageBitmap` | 最新桌面版 Chrome 或 Edge |
+| 瀏覽器 | 支援 WebAssembly、module Web Worker、WebGL、`getUserMedia`、`createImageBitmap` 與 `OffscreenCanvas` | 最新桌面版 Chrome 或 Edge |
 | 攝影機 | 瀏覽器可存取的單一攝影機 | 720p、可拍到玩家全身 |
 
 確認版本：
@@ -54,11 +54,15 @@ Network: http://192.168.1.20:5173/
 public/config/game.json
 public/models/magic-garden-guide.vrm
 public/models/pose_landmarker_full.task
+public/models/hand_landmarker.task
+public/models/face_landmarker.task
 public/mediapipe/wasm/
 public/assets/poses/*.png
 ```
 
 `pnpm install` 只安裝套件，不會重新下載這些專案資產。若資產被移除，設定檔整合測試或瀏覽器載入會失敗。
+
+Hand／Face Landmarker 分別約 7.46 MiB 與 3.58 MiB。兩者只負責 VRM 手指與表情顯示，可由 `avatarTracking` 關閉；Pose Landmarker 與瑜珈評分仍能獨立運作。模型的固定來源與 SHA-256 見 [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 `public/models/magic-garden-guide.vrm` 是作者 NHRI 製作的 3D 引導角色，會隨公開 GitHub 專案與 GitHub Pages 網站發布，因此正常 clone 後可直接取得。
 
@@ -165,6 +169,14 @@ pnpm typecheck
 ```bash
 pnpm test
 ```
+
+若要在不使用真人手部／臉部資料的情況下，目視檢查 VRM 是否有手指骨與表情 preset，可在 dev 或 preview URL 加上 `?avatarDebug=1`。例如：
+
+```text
+http://localhost:5173/?avatarDebug=1
+```
+
+此模式只合成顯示資料，不會停用 Pose Tracker，也不會繞過攝影機與遊戲 ready 條件；它不能取代 MediaPipe task、左右手、遮擋與效能的真人驗收。
 
 持續開發時可使用監看模式：
 

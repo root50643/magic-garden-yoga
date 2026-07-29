@@ -9,8 +9,8 @@
 | Vite | 開發伺服器、Web Worker 打包與正式建置 |
 | React 19 | 遊戲畫面與互動狀態 |
 | TypeScript | 設定、姿勢資料與模組邊界 |
-| MediaPipe Tasks Vision | 從攝影機影格產生 33 個姿勢關鍵點 |
-| Web Worker | 在主執行緒外初始化模型並執行推論 |
+| MediaPipe Tasks Vision | 產生 33 個身體點、21 點手部資料與臉部 blendshapes |
+| Web Worker | 把身體評分追蹤與顯示專用手／臉追蹤移出主執行緒 |
 | Three.js + `@pixiv/three-vrm` | 載入並驅動 VRM 虛擬人物 |
 | Vitest | 純邏輯單元測試與設定整合測試 |
 | Web Audio | 即時合成操作、倒數、過關與完成音效 |
@@ -22,12 +22,11 @@
 
 ```mermaid
 flowchart LR
-    C["攝影機 video"] --> B["createImageBitmap"]
-    B --> W["pose.worker.ts"]
-    W --> M["MediaPipe Pose Landmarker"]
+    C["攝影機 video"] --> P["PoseTracker／createImageBitmap"]
+    P --> W["pose.worker.ts"]
+    W --> M["Pose Landmarker"]
     M --> F["PoseFrame：0、1 或 2 人"]
-    F --> T["PoseTracker"]
-    T --> S["PoseSmoother"]
+    F --> S["PoseSmoother"]
     S --> E["純函式 evaluatePose"]
     G["public/config/game.json"] --> V["設定驗證"]
     V --> E
@@ -35,14 +34,22 @@ flowchart LR
     H --> A["App 狀態機／關卡轉場"]
     S --> R["VRM retarget"]
     S --> O["攝影機骨架 overlay"]
+    F --> Q{"恰好一人？"}
+    C --> AT["AvatarMotionTracker"]
+    Q --> AT
+    AT --> AW["avatar.worker.ts"]
+    AW --> HF["Hand／Face Landmarker"]
+    HF --> AF["AvatarMotionFrame"]
+    AF --> R
     A --> L["Local Storage 排行榜"]
 ```
 
 重要分界：
 
-- MediaPipe 物件只存在 Worker；主執行緒只接收可序列化的 `PoseFrame`。
+- MediaPipe 物件只存在 Worker；主執行緒只接收可序列化的 `PoseFrame` 與 `AvatarMotionFrame`。
 - 評分器只依賴 `DetectedPose`、`PoseDefinition` 與門檻，不依賴 React、攝影機或 VRM。
-- VRM 顯示與姿勢評分共享同一份平滑後骨架，但互不控制。模型看起來正確不代表該關規則一定匹配，反之亦然。
+- VRM 的身體顯示使用平滑後骨架；手指與表情另走 `AvatarMotionFrame`。`evaluatePose` 與 `HoldTracker` 沒有這個型別的輸入，因此手／臉資料在結構上無法改變分數。
+- VRM 顯示與姿勢評分互不控制。模型看起來正確不代表該關規則一定匹配，反之亦然。
 - `game.json` 在使用前會完整驗證；內容錯誤會進入致命錯誤頁，而不是讓錯誤值流入遊戲。
 
 ## 遊戲狀態
@@ -98,6 +105,44 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 第二個參數 `true` 很重要：Worker 由 Vite 以 ES module 形式打包，因此需要 module-aware loader 提供 `ModuleFactory`。模型以 `VIDEO` 模式、CPU delegate 執行，輸出 normalized landmarks 與 world landmarks，不輸出 segmentation mask。
 
 MediaPipe 的本機 task 與 WASM 位於 `public/`，避免執行時依賴 CDN。更新套件時不能只更新 npm 版本而保留不相容的 WASM，詳見[維護手冊](MAINTENANCE.md#更新-mediapipe)。
+
+## 顯示專用手部與臉部追蹤
+
+[`../src/lib/avatarMotionTracker.ts`](../src/lib/avatarMotionTracker.ts) 與 [`../src/workers/avatar.worker.ts`](../src/workers/avatar.worker.ts) 是獨立、可降級的顯示管線：
+
+1. `App` 只在 Pose Landmarker 回傳恰好一個人時，把該人的 `DetectedPose` 交給 `AvatarMotionTracker`。
+2. Tracker 依目前畫質選用 `avatarTracking.maxInferenceFps` 或 `lowQualityMaxInferenceFps`，從同一個 video 建立新的 `ImageBitmap`；同一時間最多一幀在途。
+3. Avatar Worker 分別初始化 Hand Landmarker 與 Face Landmarker。任一功能初始化失敗只回報該 capability／warning，不讓另一個功能或 Pose Worker 失效。
+4. Worker 回傳可序列化的 `AvatarMotionFrame`；`VrmPreview` 才把它轉成手指骨旋轉與 expression preset。
+5. 沒有人、多人或身體追蹤失效時，App 立即停止提供新的顯示資料。`VrmPreview` 會先維持上一個值 `lostHoldMs`，再將手指與表情平滑放鬆。
+
+Hand／Face task 共用本機 `public/mediapipe/wasm/`。由於 MediaPipe 建立一個 task 後會清除 loader 的 `ModuleFactory`，avatar worker 會為 `hands` 與 `face` 取得 module-aware fileset，並替各自的 `wasmLoaderPath` 加上不同 query cache key。不要移除此隔離，否則第二個 task 可能只在瀏覽器中出現 `ModuleFactory not set.`。
+
+### 全身畫面的手腕 ROI
+
+瑜珈要求頭到腳都入鏡，直接把整張 720p 畫面交給 Hand Landmarker 時，手部像素通常太少。Avatar Worker 會：
+
+1. 從 Pose 的左右手腕、拇指、食指與小指附近點估算兩隻手中心。
+2. 以肩寬與 `avatarTracking.hands.roiScale` 決定裁切尺寸，並限制在影像邊界。
+3. 把左右 ROI 各放大到 320 × 320，拼成一張 640 × 320 mosaic。
+4. 依 mosaic 面板而非 MediaPipe handedness 標籤決定解剖學左右，再把 21 點座標還原到原始畫面。
+
+這個放大只供手指動畫。姿勢評分仍使用 Pose Landmarker 的 33 點，沒有讀取手部 21 點。
+
+### VRM 手指與表情
+
+[`../src/lib/avatarMotion.ts`](../src/lib/avatarMotion.ts) 提供不依賴 DOM 的轉換：
+
+- 用 21 點三點夾角算出五指各關節的彎曲量；鏡像不改變角度。
+- 以 VRM normalized hand bones 的 rest direction 推導彎曲軸，從 rest quaternion 插值，避免每幀累加造成漂移。
+- 把 Face Landmarker 的 ARKit-like blendshapes 正規化成 VRM `aa`、`ih`、`ou`、`ee`、`oh`、左右眨眼、`happy` 與 `surprised`。
+- 嘴型權重會正規化，避免多個母音同時把 morph 過度推高。缺少的 VRM 骨或 expression preset 會略過。
+
+`smoothing` 控制 VRM 插值速度；眨眼的 attack／release 另採 frame-rate independent half-life，降低低 FPS 時忽快忽慢。詳盡參數見[設定檔手冊](CONFIGURATION.md#avatartracking)。
+
+### 評分隔離
+
+`AvatarMotionFrame` 沒有進入 `evaluatePose`、`HoldTracker` 或遊戲狀態機。回歸測試 [`../src/lib/avatarMotionIsolation.integration.test.ts`](../src/lib/avatarMotionIsolation.integration.test.ts) 會在手指與表情資料大幅改變前後比較同一份身體 pose，要求分數完全相同。未來若新增視線、頭部或更細手勢，也必須維持這個 display-only 邊界，除非產品需求明確改變並另行設計評分規則。
 
 ### 平滑
 
@@ -161,12 +206,14 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 │  ├─ assets/poses/              姿勢引導圖片
 │  ├─ config/game.json           執行階段遊戲設定
 │  ├─ mediapipe/wasm/            本機 MediaPipe WASM 與 loader
-│  └─ models/                    Pose Landmarker task 與 VRM
+│  └─ models/                    Pose／Hand／Face task 與 VRM
 ├─ src/
 │  ├─ components/
 │  │  ├─ SkeletonOverlay.tsx     鏡像攝影機上的低干擾骨架
 │  │  └─ VrmPreview.tsx          VRM 載入、取景、燈光與 retarget
 │  ├─ lib/
+│  │  ├─ avatarMotion.ts         手指角度、左右與表情純轉換
+│  │  ├─ avatarMotionTracker.ts  顯示追蹤 Worker 協調
 │  │  ├─ audio.ts                Web Audio 合成音效
 │  │  ├─ config.ts               JSON 載入、完整驗證、門檻解析
 │  │  ├─ gameState.ts            純遊戲狀態機
@@ -176,7 +223,9 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 │  │  ├─ poseSmoother.ts         EMA 時序平滑
 │  │  ├─ poseTracker.ts          Camera／Worker 協調
 │  │  └─ vrmRetarget.ts          MediaPipe 到 VRM 方向轉換
-│  ├─ workers/pose.worker.ts     MediaPipe 初始化與推論
+│  ├─ workers/
+│  │  ├─ avatar.worker.ts        Hand／Face Landmarker 與手腕 ROI
+│  │  └─ pose.worker.ts          Pose Landmarker 初始化與推論
 │  ├─ App.tsx                    畫面、流程與模組組合
 │  ├─ styles.css                 響應式版面與動畫
 │  └─ types.ts                   共用資料契約與 33 點名稱
@@ -196,6 +245,9 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 - `Landmark`：`x`、`y`、`z`、`visibility`、可選 `presence`
 - `DetectedPose`：normalized `landmarks` 與 `worldLandmarks`
 - `PoseFrame`：時間、0–2 個 pose、推論耗時
+- `DetectedHand`：解剖學左右、21 點、信心值與更新時間
+- `FaceMotion`：Face Landmarker blendshape 名稱到分數的映射
+- `AvatarMotionFrame`：顯示專用雙手／臉部資料與推論耗時；與 `PoseFrame` 分離
 - `PoseConstraint`：三種判定規則的 discriminated union
 - `PoseDefinition`：單一關卡內容、門檻與規則
 - `GameConfig`：整份 `game.json`
@@ -250,14 +302,17 @@ Vitest 使用 Node 環境，測試檔位於 `src/**/*.test.ts`。
 | 狀態機 | 倒數、過關、跳過失去排名資格與重新開始 |
 | 排行榜 | 名稱清理、同名最快、排序、前十、損壞資料 |
 | VRM 轉換 | 左右手腳不交叉、腳鏈、可見度與鏡像不交換骨骼 |
+| 手指／表情 | 關節彎曲、左右面板、彎曲軸、blendshape 映射、嘴型正規化與時序平滑 |
+| 評分隔離 | 改變手指／臉部資料後，身體姿勢分數保持完全相同 |
 | Overlay | `object-fit: cover`、鏡像與不同長寬比 |
 
 Node 測試無法代替：
 
 - 真實攝影機權限與 secure context
 - Chrome／Edge 的 MediaPipe WASM 載入
+- 全身取景時的真實手腕 ROI、手指遮擋與臉部 blendshape 品質
 - 真實兒童不同身高、衣著、光線與活動空間
-- WebGL／VRM 視覺方向
+- WebGL／VRM 左右方向、手指骨與表情 preset
 - 降低動態效果與低效能裝置
 
 這些項目必須在發布前手動驗收。
@@ -285,6 +340,29 @@ http://localhost:4173/?poseDebug=1
 
 校正時應記錄多位測試者的逐條分數，不要只以一位開發者的一次動作調整。完整步驟見[設定檔手冊](CONFIGURATION.md#姿勢校正與-posedebug)。
 
+## `avatarDebug` 顯示驗收模式
+
+開發伺服器：
+
+```text
+http://localhost:5173/?avatarDebug=1
+```
+
+正式預覽：
+
+```text
+http://localhost:4173/?avatarDebug=1
+```
+
+此模式由 `App` 合成循環的左右手彎指、眨眼、張嘴與微笑 `AvatarMotionFrame`，方便在沒有可靠手／臉輸入時確認：
+
+- VRM 是否具有標準左右手指骨，且手指朝掌心彎曲。
+- 左右手沒有交叉套用。
+- 模型是否提供左右／共用眨眼、張嘴 `aa` 與 `happy` expression preset。
+- 循環彎指與表情平滑沒有產生跳動。
+
+它刻意不模擬 Hand／Face Landmarker、手腕 ROI、攝影機解析度或效能，也不關閉 Pose Tracker。正式驗收必須移除 query parameter，再以真人逐側張手／握拳、眨單眼、張嘴與微笑；同時確認 `?poseDebug=1` 的分數不會因上述臉手動作改變。
+
 ## 新功能設計原則
 
 - 辨識器可替換：轉成 `PoseFrame` 後再交給後續模組。
@@ -292,5 +370,6 @@ http://localhost:4173/?poseDebug=1
 - 時間由 `HoldTracker` 與狀態機處理，不藏在 React 畫面元件。
 - 設定可驗證、可測試；不要默默接受拼錯欄位。
 - 顯示鏡像不改解剖學資料。
+- 手部、臉部、視線或其他裝飾動作預設為 display-only，不得把 `AvatarMotionFrame` 傳進評分器。
 - 任何會影響排行榜公平性的計時或評分變更都要新增回歸測試。
 - 兒童介面提示應友善、單一、可執行，避免醫療或責備語氣。

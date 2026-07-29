@@ -378,6 +378,122 @@ export function validateGameConfig(value: unknown): GameConfig {
     );
   }
 
+  const avatarTracking = recordAt(
+    config.avatarTracking,
+    "avatarTracking",
+    issues,
+  );
+  if (avatarTracking) {
+    requiredBoolean(avatarTracking, "enabled", "avatarTracking", issues);
+    const maxInferenceFps = requiredNumber(
+      avatarTracking,
+      "maxInferenceFps",
+      "avatarTracking",
+      issues,
+      { min: 0, minExclusive: true },
+    );
+    const lowQualityMaxInferenceFps = requiredNumber(
+      avatarTracking,
+      "lowQualityMaxInferenceFps",
+      "avatarTracking",
+      issues,
+      { min: 0, minExclusive: true },
+    );
+    if (
+      maxInferenceFps !== undefined &&
+      lowQualityMaxInferenceFps !== undefined &&
+      lowQualityMaxInferenceFps > maxInferenceFps
+    ) {
+      issues.push(
+        "avatarTracking.lowQualityMaxInferenceFps 不可高於 avatarTracking.maxInferenceFps。",
+      );
+    }
+    requiredNumber(avatarTracking, "smoothing", "avatarTracking", issues, {
+      min: 0,
+      max: 1,
+      minExclusive: true,
+    });
+    requiredNumber(avatarTracking, "lostHoldMs", "avatarTracking", issues, {
+      min: 0,
+    });
+    requiredNumber(avatarTracking, "relaxMs", "avatarTracking", issues, {
+      min: 0,
+      minExclusive: true,
+    });
+
+    const hands = recordAt(
+      avatarTracking.hands,
+      "avatarTracking.hands",
+      issues,
+    );
+    if (hands) {
+      requiredBoolean(hands, "enabled", "avatarTracking.hands", issues);
+      requiredString(hands, "modelPath", "avatarTracking.hands", issues);
+      requiredNumber(hands, "roiScale", "avatarTracking.hands", issues, {
+        min: 0,
+        minExclusive: true,
+      });
+      requiredBoolean(
+        hands,
+        "handednessSwap",
+        "avatarTracking.hands",
+        issues,
+      );
+      requiredNumber(
+        hands,
+        "minDetectionConfidence",
+        "avatarTracking.hands",
+        issues,
+        { min: 0, max: 1 },
+      );
+      requiredNumber(
+        hands,
+        "minPresenceConfidence",
+        "avatarTracking.hands",
+        issues,
+        { min: 0, max: 1 },
+      );
+      requiredNumber(
+        hands,
+        "minTrackingConfidence",
+        "avatarTracking.hands",
+        issues,
+        { min: 0, max: 1 },
+      );
+    }
+
+    const face = recordAt(
+      avatarTracking.face,
+      "avatarTracking.face",
+      issues,
+    );
+    if (face) {
+      requiredBoolean(face, "enabled", "avatarTracking.face", issues);
+      requiredString(face, "modelPath", "avatarTracking.face", issues);
+      requiredNumber(
+        face,
+        "minDetectionConfidence",
+        "avatarTracking.face",
+        issues,
+        { min: 0, max: 1 },
+      );
+      requiredNumber(
+        face,
+        "minPresenceConfidence",
+        "avatarTracking.face",
+        issues,
+        { min: 0, max: 1 },
+      );
+      requiredNumber(
+        face,
+        "minTrackingConfidence",
+        "avatarTracking.face",
+        issues,
+        { min: 0, max: 1 },
+      );
+    }
+  }
+
   const leaderboard = recordAt(config.leaderboard, "leaderboard", issues);
   if (leaderboard) {
     requiredNumber(leaderboard, "limit", "leaderboard", issues, {

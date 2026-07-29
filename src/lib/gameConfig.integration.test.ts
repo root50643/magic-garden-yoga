@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -34,6 +35,8 @@ describe("shipped game configuration", () => {
     const localPaths = [
       config.avatar.modelPath,
       config.poseDetection.modelPath,
+      config.avatarTracking.hands.modelPath,
+      config.avatarTracking.face.modelPath,
       ...config.poses.map((pose) => pose.imagePath),
     ];
 
@@ -49,6 +52,34 @@ describe("shipped game configuration", () => {
     }
 
     expect(config.avatar.modelPath).toMatch(/^\/models\/.+\.vrm$/u);
+  });
+
+  it("ships the pinned official hand and face model bundles intact", () => {
+    const workspace = resolve(import.meta.dirname, "../..");
+    const models = [
+      {
+        name: "hand_landmarker.task",
+        bytes: 7_819_105,
+        sha256:
+          "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+      },
+      {
+        name: "face_landmarker.task",
+        bytes: 3_758_596,
+        sha256:
+          "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      },
+    ];
+
+    for (const model of models) {
+      const file = readFileSync(
+        resolve(workspace, "public/models", model.name),
+      );
+      expect(file.byteLength).toBe(model.bytes);
+      expect(createHash("sha256").update(file).digest("hex")).toBe(
+        model.sha256,
+      );
+    }
   });
 
   it("allows expanding the pose array without changing application code", () => {

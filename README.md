@@ -2,14 +2,15 @@
 
 面向國小學童的繁體中文網頁體感遊戲。玩家在攝影機前模仿引導卡上的瑜珈姿勢；姿勢分數達到該關門檻並連續保持指定時間後，即可進入下一關。完成全部關卡後，可把成績寫入這台瀏覽器的本機排行榜。
 
-攝影機影像、MediaPipe 骨架與姿勢分數只在目前的瀏覽器分頁內處理：不錄影、不上傳、不需要帳號，也沒有後端服務。
+攝影機影像、MediaPipe 身體／手部／臉部追蹤結果與姿勢分數只在目前的瀏覽器分頁內處理：不錄影、不上傳、不需要帳號，也沒有後端服務。
 
 本專案是獨立的 Vite + React + TypeScript 應用程式。姿勢追蹤與 VRM 互動概念參考 [SystemAnimatorOnline / XR Animator](https://github.com/ButzYung/SystemAnimatorOnline)，沒有複製其介面、美術、音效或原始碼。
 
 ## 目前功能
 
 - MediaPipe Pose Landmarker 在 Web Worker 中執行，最多辨識兩人並阻止多人狀態累積進度。
-- `@pixiv/three-vrm` 載入 VRM，準備畫面會即時帶動人物的軀幹、手臂、腿與腳掌。
+- 額外的 MediaPipe Hand／Face Landmarker 在獨立 Worker 中帶動 VRM 手指、眨眼與嘴型；這些資料只供人物顯示，完全不參與瑜珈分數或保持計時。
+- `@pixiv/three-vrm` 載入 VRM，準備畫面會即時帶動人物的軀幹、手臂、腿、腳掌、手指與模型已提供的表情。
 - 內建山式、樹式、戰士二式、椅子式、星星式；關卡數量由 `game.json` 決定。
 - 每關可以獨立設定通過分數與保持秒數；未設定時使用全域預設值。
 - 3D 關節角度、相對位置、距離比例、左右鏡像、EMA 平滑與 500 ms 追蹤寬限。
@@ -52,9 +53,9 @@ pnpm preview
 | [文件索引](docs/README.md) | 依工作情境選擇文件 |
 | [建置與執行](docs/BUILD.md) | Windows、Node.js、pnpm、`0.0.0.0`、LAN、HTTPS、正式建置與部署 |
 | [GitHub Pages 部署](docs/GITHUB_PAGES.md) | 公開網址、Actions 自動部署、子路徑、攝影機權限與發布檢查 |
-| [開發指南](docs/DEVELOPMENT.md) | 架構、資料流、狀態機、程式目錄、測試與 `poseDebug` |
-| [設定檔手冊](docs/CONFIGURATION.md) | `game.json` 完整欄位、每關分數門檻、評分規則、換圖、換模型與新增關卡 |
-| [維護手冊](docs/MAINTENANCE.md) | 依賴更新、姿勢校準、排行榜、隱私授權、疑難排解與發行檢查表 |
+| [開發指南](docs/DEVELOPMENT.md) | 架構、身體／手／臉資料流、狀態機、測試、`poseDebug` 與 `avatarDebug` |
+| [設定檔手冊](docs/CONFIGURATION.md) | `game.json` 完整欄位、每關門檻、顯示追蹤、評分規則、換圖／模型與新增關卡 |
+| [維護手冊](docs/MAINTENANCE.md) | 依賴與模型更新、姿勢校準、排行榜、隱私、手／臉排錯與發行檢查表 |
 | [第三方授權](THIRD_PARTY_NOTICES.md) | 套件、參考專案、原創 VRM 與美術素材說明 |
 
 ## 最常修改的設定
@@ -77,6 +78,24 @@ pnpm preview
   "poseDetection": {
     "scoreThreshold": 75
   },
+  "avatarTracking": {
+    "enabled": true,
+    "maxInferenceFps": 10,
+    "lowQualityMaxInferenceFps": 6,
+    "smoothing": 0.38,
+    "lostHoldMs": 250,
+    "relaxMs": 300,
+    "hands": {
+      "enabled": true,
+      "modelPath": "/models/hand_landmarker.task",
+      "roiScale": 1.6,
+      "handednessSwap": false
+    },
+    "face": {
+      "enabled": true,
+      "modelPath": "/models/face_landmarker.task"
+    }
+  },
   "poses": [
     {
       "id": "mountain",
@@ -93,6 +112,7 @@ pnpm preview
 - 省略 `poses[].scoreThreshold` 時，才使用 `poseDetection.scoreThreshold`。
 - `poses[].holdSeconds` 會覆蓋 `timing.defaultHoldSeconds`。
 - `avatar.mirrored` 只水平翻轉 VRM 畫面，不交換骨骼或改變評分。
+- `avatarTracking` 是選用的顯示同步功能；可整體關閉，或只關閉 `hands`／`face`。載入或推論失敗只會顯示提醒，不會阻止身體姿勢闖關。
 - `poses[].allowMirrored` 才決定評分器是否接受左右相反的做法。
 - `challengeId` 是本機排行榜的儲存分區。目前開發版沿用 `magic-garden-yoga-dev`；啟動時只保留目前 ID 的榜單，並刪除同遊戲前綴的其他舊榜單。要重置目前榜單時直接刪除對應 Local Storage，不需要為每次調整建立新 ID。
 
@@ -104,10 +124,20 @@ http://localhost:5173/?poseDebug=1
 
 畫面會顯示本關通過門檻與每條規則的即時分數。如何判讀分數與調整容錯值，請見[設定檔手冊](docs/CONFIGURATION.md#姿勢校正與-posedebug)。
 
+只驗收 VRM 手指與表情、但不依賴真人手／臉追蹤資料時，可開啟：
+
+```text
+http://localhost:5173/?avatarDebug=1
+```
+
+此模式會合成循環的彎指、眨眼、張嘴與微笑資料；它不會改變 Pose Landmarker、分數或排行榜。正式真人驗收仍須關閉此參數，實際測試雙手、臉部光線及追蹤效能。
+
 ## 支援範圍
 
 - 桌面版最新版 Chrome 與 Edge。
 - 單一玩家、全身清楚入鏡、鏡頭距離約兩公尺。
+- 手指同步需要雙手在畫面內、手指輪廓清楚；臉部同步需要正面或接近正面的臉與足夠光線。
+- VRM 缺少標準手指骨或對應表情預設時，只會略過該動畫，身體動作與闖關仍可使用。
 - 以 `localhost` 或 HTTPS 執行；請勿直接雙擊 `index.html`。
 - 這是活動遊戲，不是醫療、復健、運動處方或安全診斷工具。
 

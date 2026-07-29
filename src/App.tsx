@@ -10,6 +10,7 @@ import {
 } from "react";
 import { SkeletonOverlay } from "./components/SkeletonOverlay";
 import { VrmPreview } from "./components/VrmPreview";
+import { AvatarMotionTracker } from "./lib/avatarMotionTracker";
 import { GardenAudio } from "./lib/audio";
 import { loadGameConfig, resolvePoseScoreThreshold } from "./lib/config";
 import {
@@ -28,6 +29,7 @@ import { PoseSmoother } from "./lib/poseSmoother";
 import { PoseTracker } from "./lib/poseTracker";
 import { resolvePublicAssetPath } from "./lib/publicAsset";
 import type {
+  AvatarMotionFrame,
   DetectedPose,
   GameConfig,
   LeaderboardEntry,
@@ -39,6 +41,66 @@ import type {
 
 const BODY_CHECK_INDICES = [0, 11, 12, 23, 24, 25, 26, 27, 28];
 const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
+
+function avatarDebugFrame(timestampMs: number): AvatarMotionFrame {
+  const flexion = ((Math.sin(timestampMs / 850) + 1) / 2) * 1.2;
+  const landmarks = Array.from({ length: 21 }, () => ({
+    x: 0,
+    y: 0,
+    z: 0,
+    visibility: 1,
+    presence: 1,
+  }));
+  const chains = [
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12],
+    [13, 14, 15, 16],
+    [17, 18, 19, 20],
+  ];
+  for (const chain of chains) {
+    let x = 0;
+    let y = 1;
+    chain.forEach((index, segmentIndex) => {
+      if (segmentIndex > 0) {
+        const angle = flexion * segmentIndex;
+        x += Math.sin(angle);
+        y += Math.cos(angle);
+      }
+      landmarks[index] = {
+        x,
+        y,
+        z: 0,
+        visibility: 1,
+        presence: 1,
+      };
+    });
+  }
+  const blink = Math.sin(timestampMs / 230) > 0.92 ? 1 : 0;
+  const mouth = (Math.sin(timestampMs / 640) + 1) / 2;
+
+  return {
+    timestampMs,
+    inferenceMs: 0,
+    hands: (["left", "right"] as const).map((side) => ({
+      side,
+      landmarks: landmarks.map((point) => ({ ...point })),
+      worldLandmarks: landmarks.map((point) => ({ ...point })),
+      confidence: 1,
+      updatedAtMs: timestampMs,
+    })),
+    face: {
+      updatedAtMs: timestampMs,
+      blendshapes: {
+        eyeBlinkLeft: blink,
+        eyeBlinkRight: blink,
+        jawOpen: mouth * 0.7,
+        mouthSmileLeft: 1 - mouth,
+        mouthSmileRight: 1 - mouth,
+      },
+    },
+  };
+}
 
 function formatTime(milliseconds: number): string {
   const totalTenths = Math.max(0, Math.floor(milliseconds / 100));
@@ -167,6 +229,14 @@ export function App() {
   const [trackingStatus, setTrackingStatus] =
     useState<TrackingStatus>("loading");
   const [frame, setFrame] = useState<PoseFrame | null>(null);
+  const [avatarMotion, setAvatarMotion] =
+    useState<AvatarMotionFrame | null>(null);
+  const [avatarWarning, setAvatarWarning] = useState("");
+  const [avatarCapabilities, setAvatarCapabilities] = useState<{
+    hands: boolean;
+    face: boolean;
+  } | null>(null);
+  const [avatarProgress, setAvatarProgress] = useState("starting");
   const [smoothedPose, setSmoothedPose] = useState<DetectedPose | null>(null);
   const [currentPoseIndex, setCurrentPoseIndex] = useState(0);
   const [poseScore, setPoseScore] = useState<PoseScore | null>(null);
@@ -185,6 +255,7 @@ export function App() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackerRef = useRef<PoseTracker | null>(null);
+  const avatarTrackerRef = useRef<AvatarMotionTracker | null>(null);
   const audioRef = useRef(new GardenAudio(!muted));
   const holdTrackerRef = useRef<HoldTracker | null>(null);
   const completionLockRef = useRef(false);
@@ -200,22 +271,34 @@ export function App() {
     () => new URLSearchParams(window.location.search).get("poseDebug") === "1",
     [],
   );
+  const avatarDebugEnabled = useMemo(
+    () =>
+      new URLSearchParams(window.location.search).get("avatarDebug") === "1",
+    [],
+  );
 
   const clearSmoothedPose = useCallback(() => {
     poseSmootherRef.current?.reset();
     setSmoothedPose(null);
+    avatarTrackerRef.current?.setPose(null);
+    setAvatarMotion(null);
   }, []);
   const handleTrackerFrame = useCallback((nextFrame: PoseFrame) => {
     setFrame(nextFrame);
     const onlyPose =
       nextFrame.poses.length === 1 ? nextFrame.poses[0] ?? null : null;
     if (!onlyPose) {
+      avatarTrackerRef.current?.setPose(null);
       poseSmootherRef.current?.reset();
       setSmoothedPose(null);
+      setAvatarMotion(null);
       return;
     }
 
-    setSmoothedPose(poseSmootherRef.current?.update(onlyPose) ?? null);
+    const nextSmoothedPose =
+      poseSmootherRef.current?.update(onlyPose) ?? onlyPose;
+    avatarTrackerRef.current?.setPose(nextSmoothedPose);
+    setSmoothedPose(nextSmoothedPose);
   }, []);
 
   const activePose =
@@ -261,6 +344,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!avatarDebugEnabled) return;
+    let animationId = 0;
+    const update = (timestamp: number) => {
+      setAvatarMotion(avatarDebugFrame(timestamp));
+      animationId = requestAnimationFrame(update);
+    };
+    animationId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(animationId);
+  }, [avatarDebugEnabled]);
+
+  useEffect(() => {
     let active = true;
     loadGameConfig()
       .then((loadedConfig) => {
@@ -292,9 +386,13 @@ export function App() {
 
   useEffect(() => {
     if (!config || !videoRef.current || phase === "error") return;
+    let active = true;
 
     clearSmoothedPose();
     setFrame(null);
+    setAvatarWarning("");
+    setAvatarCapabilities(null);
+    setAvatarProgress("starting");
     const tracker = new PoseTracker({
       onFrame: handleTrackerFrame,
       onStatus: setTrackingStatus,
@@ -304,7 +402,41 @@ export function App() {
       },
     });
     trackerRef.current = tracker;
+    const avatarTracker = new AvatarMotionTracker({
+      onFrame: setAvatarMotion,
+      onWarning: (_feature, message) => setAvatarWarning(message),
+      onReady: setAvatarCapabilities,
+      onProgress: (feature, progress) =>
+        setAvatarProgress(`${feature}:${progress}`),
+    });
+    avatarTrackerRef.current = avatarTracker;
     setCameraError("");
+    setAvatarProgress("tracker:start");
+    void avatarTracker
+      .start(
+        videoRef.current,
+        {
+          ...config.avatarTracking,
+          maxInferenceFps:
+            config.effects.defaultQuality === "low"
+              ? config.avatarTracking.lowQualityMaxInferenceFps
+              : config.avatarTracking.maxInferenceFps,
+        },
+        config.poseDetection.wasmPath,
+      )
+      .catch((error: unknown) => {
+        if (
+          !active ||
+          avatarTrackerRef.current !== avatarTracker
+        ) {
+          return;
+        }
+        setAvatarWarning(
+          error instanceof Error
+            ? error.message
+            : "手指與表情同步無法啟動。",
+        );
+      });
     void tracker
       .start(videoRef.current, config.poseDetection)
       .catch((error: unknown) => {
@@ -316,11 +448,25 @@ export function App() {
       });
 
     return () => {
+      active = false;
       tracker.stop();
+      avatarTracker.stop();
       poseSmootherRef.current?.reset();
       if (trackerRef.current === tracker) trackerRef.current = null;
+      if (avatarTrackerRef.current === avatarTracker) {
+        avatarTrackerRef.current = null;
+      }
     };
   }, [clearSmoothedPose, config, handleTrackerFrame, phase === "error"]);
+
+  useEffect(() => {
+    if (!config) return;
+    avatarTrackerRef.current?.setMaxInferenceFps(
+      quality === "low"
+        ? config.avatarTracking.lowQualityMaxInferenceFps
+        : config.avatarTracking.maxInferenceFps,
+    );
+  }, [config, quality]);
 
   useEffect(() => {
     if (phase !== "countdown" || !config) return;
@@ -688,9 +834,33 @@ export function App() {
             <p className="privacy-note">
               請保留約兩公尺距離，確保頭頂、雙手與雙腳都在畫面中。遊戲不錄影，也不會上傳攝影機內容。
             </p>
+            {avatarWarning && (
+              <p className="avatar-tracking-warning" role="status">
+                手指／表情同步暫時無法使用：{avatarWarning}
+                <br />
+                身體姿勢判定與闖關不受影響。
+              </p>
+            )}
           </section>
 
-          <section className="portal-card">
+          <section
+            className="portal-card"
+            data-hand-tracking={
+              avatarCapabilities === null
+                ? "loading"
+                : avatarCapabilities.hands
+                  ? "ready"
+                  : "unavailable"
+            }
+            data-face-tracking={
+              avatarCapabilities === null
+                ? "loading"
+                : avatarCapabilities.face
+                  ? "ready"
+                  : "unavailable"
+            }
+            data-avatar-progress={avatarProgress}
+          >
             <div className="portal-label">
               <i /> 你的魔法動作夥伴
             </div>
@@ -700,6 +870,10 @@ export function App() {
               cameraDistance={config.avatar.cameraDistance}
               mirrored={config.avatar.mirrored}
               pose={detectedPose}
+              avatarMotion={avatarMotion}
+              motionSmoothing={config.avatarTracking.smoothing}
+              motionLostHoldMs={config.avatarTracking.lostHoldMs}
+              motionRelaxMs={config.avatarTracking.relaxMs}
               reducedMotion={lowMotion}
               onReady={handleVrmReady}
               onError={handleVrmError}

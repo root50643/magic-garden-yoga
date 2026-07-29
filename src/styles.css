@@ -1230,6 +1230,17 @@ input:focus-visible {
   line-height: 1.5;
 }
 
+.avatar-tracking-warning {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 216, 117, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 216, 117, 0.08);
+  color: rgba(255, 242, 201, 0.76);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 @keyframes star-drift {
   to {
     background-position: 210px -190px, -270px 230px, 180px -220px, -240px 200px;
