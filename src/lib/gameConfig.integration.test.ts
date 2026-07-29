@@ -59,6 +59,9 @@ describe("shipped game configuration", () => {
     expect(config.avatarTracking.face.modelPath).toBe(
       "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
     );
+    expect(config.poseDetection.wasmPath).toBe(
+      "https://unpkg.com/@mediapipe/tasks-vision@0.10.35/wasm",
+    );
   });
 
   it("ships the pinned official hand and face model bundles intact", () => {

@@ -339,7 +339,7 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 1. 確認 `src/workers/pose.worker.ts` 與 `src/workers/avatar.worker.ts` 的 fileset 初始化仍保留第二個參數 `true`。
 2. 在 DevTools Network 搜尋 `vision_wasm`，確認對應 JS 與 WASM 都是 HTTP 200，而不是 404、HTML 錯誤頁或被代理登入頁取代。
 3. 確認 `public/mediapipe/wasm/` 的六個檔案來自與 `@mediapipe/tasks-vision` 相同版本。
-4. 確認 `game.json` 的 `wasmPath` 是目錄 `/mediapipe/wasm`，不是某一個檔名。
+4. 確認 `game.json` 的 `wasmPath` 是釘選同版套件的 WASM 目錄（公開版為 `https://unpkg.com/@mediapipe/tasks-vision@0.10.35/wasm`，離線版為 `/mediapipe/wasm`），不是某一個檔名。
 5. 確認正式伺服器將 `.wasm` 以 `application/wasm` 回應，JS 使用正確 JavaScript MIME。
 6. 停止 dev server、重新 `pnpm install --frozen-lockfile`、重啟，再在瀏覽器硬重新整理。
 7. 清除該 origin 的快取；若部署環境有 CDN／service worker，也清除舊 loader。專案本身目前沒有 service worker。

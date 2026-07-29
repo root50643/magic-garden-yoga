@@ -22,7 +22,7 @@
 | `react`、`react-dom` | UI | MIT |
 | `vite`、`typescript`、`vitest` | 建置與測試 | MIT / Apache-2.0（依個別套件） |
 
-本專案包含供瀏覽器本機載入的 MediaPipe Pose／Hand／Face Landmarker task 與其 WASM 執行檔；發布時應一併保留相應授權與通知。所有推論都在使用者瀏覽器本機執行。
+本專案包含 MediaPipe Pose／Hand／Face Landmarker task 與其 WASM 執行檔的本機副本；公開設定也會從 Google 固定版端點與釘選版本的 unpkg 下載相同用途的靜態資產。發布時應一併保留相應授權與通知。所有推論都在使用者瀏覽器本機執行，攝影機影像與 landmark 不會送到這些靜態資產服務。
 
 ### 顯示用 Hand／Face Landmarker 模型
 

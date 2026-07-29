@@ -43,7 +43,7 @@ pnpm build
   },
   "poseDetection": {
     "modelPath": "/models/pose_landmarker_full.task",
-    "wasmPath": "/mediapipe/wasm",
+    "wasmPath": "https://unpkg.com/@mediapipe/tasks-vision@0.10.35/wasm",
     "maxInferenceFps": 20,
     "scoreThreshold": 75,
     "minDetectionConfidence": 0.55,
@@ -152,7 +152,7 @@ pnpm build
 | 欄位 | 型別／範圍 | 說明 |
 | --- | --- | --- |
 | `modelPath` | 非空字串 | MediaPipe Pose Landmarker `.task` URL |
-| `wasmPath` | 非空字串 | 包含 MediaPipe loader 與 WASM 的目錄 URL，不含尾端檔名 |
+| `wasmPath` | 非空字串 | 包含 MediaPipe loader 與 WASM 的目錄 URL，不含尾端檔名；公開版釘選 `@mediapipe/tasks-vision@0.10.35` 的 unpkg 目錄 |
 | `maxInferenceFps` | 有限數字，`> 0` | 每秒最多送入 Worker 的影格數；通常 12–20 |
 | `scoreThreshold` | 有限數字，0–100 | 姿勢未設定個別門檻時的全域 fallback |
 | `minDetectionConfidence` | 有限數字，0–1 | MediaPipe 初次姿勢偵測信心門檻 |
@@ -216,6 +216,8 @@ pnpm build
 Face Landmarker 只要求一張臉，輸出 blendshape 係數；目前不輸出臉部網格或頭部 transformation matrix。程式會把相關係數映射到 VRM 的 `blinkLeft`／`blinkRight`（缺少時使用共用 `blink`）、`aa`、`ih`、`ou`、`ee`、`oh`、`happy` 與 `surprised` preset。模型沒有某個 expression preset 時會直接略過，不是致命錯誤。
 
 公開版預設使用 Google 官方固定版模型網址，避免 GitHub Pages 對大型 `.task` 下載過慢。若環境需要完全離線或禁止外部靜態資產，把 Hand／Face 的 `modelPath` 分別改成 `/models/hand_landmarker.task` 與 `/models/face_landmarker.task`；兩份相同雜湊的模型已包含在 `public/models/`。
+
+同樣地，公開版的 `poseDetection.wasmPath` 使用與 `package.json` 完全相同版本的 unpkg WASM 目錄。離線部署時改回 `/mediapipe/wasm`；更新 npm 套件版本時必須同步更新 CDN 版本與本機 WASM。
 
 ### 效能與故障隔離
 

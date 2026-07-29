@@ -114,7 +114,7 @@ pnpm preview
 - `poses[].holdSeconds` 會覆蓋 `timing.defaultHoldSeconds`。
 - `avatar.mirrored` 只水平翻轉 VRM 畫面，不交換骨骼或改變評分。
 - `avatarTracking` 是選用的顯示同步功能；可整體關閉，或只關閉 `hands`／`face`。載入或推論失敗只會顯示提醒，不會阻止身體姿勢闖關。
-- 公開版預設從 Google 的固定版網址下載 Hand／Face 模型，以避開 GitHub Pages 大檔速度限制；只有靜態模型被下載，攝影機影像與 landmark 不會送出瀏覽器。校內或離線環境可把兩個 `modelPath` 改回 `/models/hand_landmarker.task` 與 `/models/face_landmarker.task`。
+- 公開版預設從 Google 的固定版網址下載 Hand／Face 模型，並從釘選版本的 unpkg 下載 MediaPipe WASM，以避開 GitHub Pages 大檔速度限制；只有靜態程式與模型被下載，攝影機影像與 landmark 不會送出瀏覽器。校內或離線環境可把兩個 `modelPath` 改回 `/models/hand_landmarker.task`、`/models/face_landmarker.task`，並把 `wasmPath` 改回 `/mediapipe/wasm`。
 - `poses[].allowMirrored` 才決定評分器是否接受左右相反的做法。
 - `challengeId` 是本機排行榜的儲存分區。目前開發版沿用 `magic-garden-yoga-dev`；啟動時只保留目前 ID 的榜單，並刪除同遊戲前綴的其他舊榜單。要重置目前榜單時直接刪除對應 Local Storage，不需要為每次調整建立新 ID。
 

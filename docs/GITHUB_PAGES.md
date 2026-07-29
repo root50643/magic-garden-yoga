@@ -160,7 +160,7 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 - [ ] HTML、JS、CSS、`config/game.json` 都回應 200。
 - [ ] `magic-garden-guide.vrm`、五張姿勢圖與 `pose_landmarker_full.task` 回應 200。
 - [ ] `storage.googleapis.com` 上的官方 `hand_landmarker.task` 與 `face_landmarker.task` 回應 200。
-- [ ] MediaPipe WASM loader 與 `.wasm` 回應 200；`.wasm` 使用合理 MIME。
+- [ ] unpkg 的 MediaPipe WASM loader 與 `.wasm` 回應 200；版本為 `0.10.35` 且 `.wasm` 使用合理 MIME。
 - [ ] Console 沒有 404、mixed content、Worker、WebAssembly 或 WebGL 錯誤。
 - [ ] 攝影機權限、單人／多人提示、全身入鏡與分數都正常。
 - [ ] VRM 左右手腳、鏡像顯示與每關門檻符合設定。

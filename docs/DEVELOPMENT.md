@@ -104,7 +104,7 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 
 第二個參數 `true` 很重要：Worker 由 Vite 以 ES module 形式打包，因此需要 module-aware loader 提供 `ModuleFactory`。模型以 `VIDEO` 模式、CPU delegate 執行，輸出 normalized landmarks 與 world landmarks，不輸出 segmentation mask。
 
-Pose task 與 WASM 位於 `public/`。Hand／Face task 亦保留本機副本，但公開設定預設使用 Google 官方固定版網址，以改善 GitHub Pages 大檔下載速度；攝影機影像仍只在 Worker 本機處理。更新套件時不能只更新 npm 版本而保留不相容的 WASM，詳見[維護手冊](MAINTENANCE.md#更新-mediapipe)。
+Pose／Hand／Face task 與 WASM 都在 `public/` 保留本機副本。公開設定預設使用 Google 官方固定版 Hand／Face 模型，以及與 npm 套件同版的 unpkg WASM，以改善 GitHub Pages 大檔下載速度；攝影機影像仍只在 Worker 本機處理。更新套件時不能只更新 npm 版本而保留不相容的 WASM 或 CDN 版本，詳見[維護手冊](MAINTENANCE.md#更新-mediapipe)。
 
 ## 顯示專用手部與臉部追蹤
 
