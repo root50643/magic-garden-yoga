@@ -14,7 +14,10 @@ export interface ConfigResponse {
   json(): Promise<unknown>;
 }
 
-export type ConfigFetcher = (url: string) => Promise<ConfigResponse>;
+export type ConfigFetcher = (
+  url: string,
+  init?: RequestInit,
+) => Promise<ConfigResponse>;
 
 export class ConfigValidationError extends Error {
   readonly issues: readonly string[];
@@ -30,6 +33,7 @@ const LANDMARK_NAMES = new Set<string>(POSE_LANDMARK_NAMES);
 const ORIENTATIONS = new Set(["front", "threeQuarter", "side"]);
 const AXES = new Set(["x", "y", "z"]);
 const RELATIONS = new Set(["less", "greater", "near"]);
+const DEFAULT_AVATAR_INITIALIZATION_TIMEOUT_MS = 120_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -300,7 +304,20 @@ function validatePose(
  */
 export function validateGameConfig(value: unknown): GameConfig {
   const issues: string[] = [];
-  const config = recordAt(value, "設定檔", issues);
+  const normalizedValue =
+    isRecord(value) &&
+    isRecord(value.avatarTracking) &&
+    value.avatarTracking.initializationTimeoutMs === undefined
+      ? {
+          ...value,
+          avatarTracking: {
+            ...value.avatarTracking,
+            initializationTimeoutMs:
+              DEFAULT_AVATAR_INITIALIZATION_TIMEOUT_MS,
+          },
+        }
+      : value;
+  const config = recordAt(normalizedValue, "設定檔", issues);
   if (!config) {
     throw new ConfigValidationError(issues);
   }
@@ -578,12 +595,12 @@ export async function loadGameConfig(
       if (typeof globalThis.fetch !== "function") {
         throw new Error("目前環境不支援 fetch。");
       }
-      return globalThis.fetch(requestUrl);
+      return globalThis.fetch(requestUrl, { cache: "no-store" });
     });
 
   let response: ConfigResponse;
   try {
-    response = await request(url);
+    response = await request(url, { cache: "no-store" });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`無法載入遊戲設定 ${url}：${reason}`, { cause: error });

@@ -174,7 +174,7 @@ pnpm build
 | `enabled` | boolean | 手部與臉部顯示同步的總開關；`false` 時不啟動額外 Worker 推論 |
 | `maxInferenceFps` | 有限數字，`> 0` | 額外手／臉推論的最高 FPS；預設 10，與 `poseDetection.maxInferenceFps` 分開 |
 | `lowQualityMaxInferenceFps` | 有限數字，`> 0` 且不高於 `maxInferenceFps` | 切換成「節能光效」時的額外手／臉推論上限；預設 6 |
-| `initializationTimeoutMs` | 有限數字，`>= 1000` | Hand／Face 模型初始化逾時；預設 120000（2 分鐘），包含首次公開網站下載與 WASM 編譯時間 |
+| `initializationTimeoutMs` | 有限數字，`>= 1000` | Hand／Face 模型初始化逾時；預設 120000（2 分鐘），包含首次公開網站下載與 WASM 編譯時間；舊設定省略時也會採用此值 |
 | `smoothing` | 有限數字，`> 0` 且 `<= 1` | VRM 手指與表情的插值速度；較小較平滑但延遲較明顯，較大回應較快 |
 | `lostHoldMs` | 有限數字，`>= 0` | 短暫漏掉手或臉時，維持上一個顯示值的時間 |
 | `relaxMs` | 有限數字，`> 0` | 超過 `lostHoldMs` 後，手指回到模型休息姿勢的平滑時間；臉部表情會依內建表情平滑值回到 0 |

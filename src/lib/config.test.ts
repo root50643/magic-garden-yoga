@@ -273,7 +273,20 @@ describe("loadGameConfig", () => {
     await expect(loadGameConfig(undefined, fetcher)).resolves.toMatchObject({
       challengeId: "garden-5",
     });
-    expect(fetcher).toHaveBeenCalledWith("/config/game.json");
+    expect(fetcher).toHaveBeenCalledWith("/config/game.json", {
+      cache: "no-store",
+    });
+  });
+
+  it("defaults the avatar initialization timeout for cached older configs", () => {
+    const config = validConfig() as unknown as {
+      avatarTracking: Record<string, unknown>;
+    };
+    delete config.avatarTracking.initializationTimeoutMs;
+
+    expect(
+      validateGameConfig(config).avatarTracking.initializationTimeoutMs,
+    ).toBe(120_000);
   });
 
   it("explains HTTP and malformed JSON failures", async () => {
