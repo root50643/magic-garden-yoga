@@ -60,7 +60,7 @@ pnpm build
     "relaxMs": 300,
     "hands": {
       "enabled": true,
-      "modelPath": "/models/hand_landmarker.task",
+      "modelPath": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "roiScale": 1.6,
       "handednessSwap": false,
       "minDetectionConfidence": 0.5,
@@ -69,7 +69,7 @@ pnpm build
     },
     "face": {
       "enabled": true,
-      "modelPath": "/models/face_landmarker.task",
+      "modelPath": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5
@@ -214,6 +214,8 @@ pnpm build
 | `minTrackingConfidence` | 有限數字，0–1 | 影片臉部追蹤信心門檻 |
 
 Face Landmarker 只要求一張臉，輸出 blendshape 係數；目前不輸出臉部網格或頭部 transformation matrix。程式會把相關係數映射到 VRM 的 `blinkLeft`／`blinkRight`（缺少時使用共用 `blink`）、`aa`、`ih`、`ou`、`ee`、`oh`、`happy` 與 `surprised` preset。模型沒有某個 expression preset 時會直接略過，不是致命錯誤。
+
+公開版預設使用 Google 官方固定版模型網址，避免 GitHub Pages 對大型 `.task` 下載過慢。若環境需要完全離線或禁止外部靜態資產，把 Hand／Face 的 `modelPath` 分別改成 `/models/hand_landmarker.task` 與 `/models/face_landmarker.task`；兩份相同雜湊的模型已包含在 `public/models/`。
 
 ### 效能與故障隔離
 

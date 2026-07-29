@@ -104,7 +104,7 @@ FilesetResolver.forVisionTasks(config.wasmPath, true)
 
 第二個參數 `true` 很重要：Worker 由 Vite 以 ES module 形式打包，因此需要 module-aware loader 提供 `ModuleFactory`。模型以 `VIDEO` 模式、CPU delegate 執行，輸出 normalized landmarks 與 world landmarks，不輸出 segmentation mask。
 
-MediaPipe 的本機 task 與 WASM 位於 `public/`，避免執行時依賴 CDN。更新套件時不能只更新 npm 版本而保留不相容的 WASM，詳見[維護手冊](MAINTENANCE.md#更新-mediapipe)。
+Pose task 與 WASM 位於 `public/`。Hand／Face task 亦保留本機副本，但公開設定預設使用 Google 官方固定版網址，以改善 GitHub Pages 大檔下載速度；攝影機影像仍只在 Worker 本機處理。更新套件時不能只更新 npm 版本而保留不相容的 WASM，詳見[維護手冊](MAINTENANCE.md#更新-mediapipe)。
 
 ## 顯示專用手部與臉部追蹤
 
@@ -112,7 +112,7 @@ MediaPipe 的本機 task 與 WASM 位於 `public/`，避免執行時依賴 CDN�
 
 1. `App` 只在 Pose Landmarker 回傳恰好一個人時，把該人的 `DetectedPose` 交給 `AvatarMotionTracker`。
 2. Tracker 依目前畫質選用 `avatarTracking.maxInferenceFps` 或 `lowQualityMaxInferenceFps`，從同一個 video 建立新的 `ImageBitmap`；同一時間最多一幀在途。
-3. Avatar Worker 分別初始化 Hand Landmarker 與 Face Landmarker。任一功能初始化失敗只回報該 capability／warning，不讓另一個功能或 Pose Worker 失效。
+3. Avatar Worker 先平行下載 Hand／Face 模型 buffer，再以不同 loader cache key 依序建立兩個 Landmarker。任一功能下載或初始化失敗只回報該 capability／warning，不讓另一個功能或 Pose Worker 失效。
 4. Worker 回傳可序列化的 `AvatarMotionFrame`；`VrmPreview` 才把它轉成手指骨旋轉與 expression preset。
 5. 沒有人、多人或身體追蹤失效時，App 立即停止提供新的顯示資料。`VrmPreview` 會先維持上一個值 `lostHoldMs`，再將手指與表情平滑放鬆。
 

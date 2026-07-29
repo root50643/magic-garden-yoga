@@ -66,6 +66,8 @@ Hand／Face Landmarker 分別約 7.46 MiB 與 3.58 MiB。兩者只負責 VRM 手
 
 GitHub Pages 首次造訪還需要下載 VRM、WASM 與多個 task；較慢的網路可能需要一分鐘以上。`avatarTracking.initializationTimeoutMs` 預設為 120000，避免把仍在下載或編譯的 Hand／Face 模型誤判為失敗。
 
+公開設定的 Hand／Face `modelPath` 使用 Google 官方固定版網址；這只下載靜態模型，不會上傳攝影機內容。完全離線或校內封閉網路部署時，改回 `public/models/` 對應的網站路徑即可。
+
 程式以 `cache: "no-store"` 讀取 `game.json`，避免 Pages 部署後出現新 JavaScript 搭配舊設定快取；新增設定欄位時仍應提供合理的向下相容預設，確保 CDN 節點短暫不同步時不會中斷整個遊戲。
 
 `public/models/magic-garden-guide.vrm` 是作者 NHRI 製作的 3D 引導角色，會隨公開 GitHub 專案與 GitHub Pages 網站發布，因此正常 clone 後可直接取得。

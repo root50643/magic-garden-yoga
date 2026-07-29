@@ -136,6 +136,33 @@ function currentCapabilities(): { hands: boolean; face: boolean } {
   };
 }
 
+async function downloadModel(
+  feature: AvatarFeature,
+  modelPath: string,
+): Promise<Uint8Array | null> {
+  postMessage({ type: "progress", feature, phase: "model" });
+  try {
+    const response = await fetch(modelPath);
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status}${
+          response.statusText ? ` ${response.statusText}` : ""
+        }`,
+      );
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  } catch (error) {
+    postMessage({
+      type: "warning",
+      feature,
+      message: `${
+        feature === "hands" ? "手指" : "臉部"
+      }模型下載失敗：${errorMessage(error)}`,
+    });
+    return null;
+  }
+}
+
 function disableFeatureAfterRuntimeError(
   feature: AvatarFeature,
   error: unknown,
@@ -173,16 +200,29 @@ async function initialize(nextConfig: AvatarTrackingConfig): Promise<void> {
     return;
   }
 
-  if (nextConfig.hands.enabled) {
+  // Download both independent model bundles in parallel. Task construction
+  // remains sequential because each MediaPipe instance needs an isolated
+  // module-loader cache key, but Face no longer waits for the Hand model
+  // network request to finish before its own download can begin.
+  const [handModel, faceModel] = await Promise.all([
+    nextConfig.hands.enabled
+      ? downloadModel("hands", nextConfig.hands.modelPath)
+      : Promise.resolve(null),
+    nextConfig.face.enabled
+      ? downloadModel("face", nextConfig.face.modelPath)
+      : Promise.resolve(null),
+  ]);
+  if (currentInitialization !== initializationId) return;
+
+  if (nextConfig.hands.enabled && handModel) {
     try {
       postMessage({ type: "progress", feature: "hands", phase: "runtime" });
       const fileset = await filesetForTask(nextConfig.wasmPath, "hands");
-      postMessage({ type: "progress", feature: "hands", phase: "model" });
       const nextHandLandmarker = await HandLandmarker.createFromOptions(
         fileset,
         {
           baseOptions: {
-            modelAssetPath: nextConfig.hands.modelPath,
+            modelAssetBuffer: handModel,
             delegate: "CPU",
           },
           runningMode: "VIDEO",
@@ -209,16 +249,15 @@ async function initialize(nextConfig: AvatarTrackingConfig): Promise<void> {
     }
   }
 
-  if (nextConfig.face.enabled) {
+  if (nextConfig.face.enabled && faceModel) {
     try {
       postMessage({ type: "progress", feature: "face", phase: "runtime" });
       const fileset = await filesetForTask(nextConfig.wasmPath, "face");
-      postMessage({ type: "progress", feature: "face", phase: "model" });
       const nextFaceLandmarker = await FaceLandmarker.createFromOptions(
         fileset,
         {
           baseOptions: {
-            modelAssetPath: nextConfig.face.modelPath,
+            modelAssetBuffer: faceModel,
             delegate: "CPU",
           },
           runningMode: "VIDEO",

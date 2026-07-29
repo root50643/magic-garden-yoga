@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { resolvePoseScoreThreshold, validateGameConfig } from "./config";
 
 describe("shipped game configuration", () => {
-  it("validates the real JSON and references existing local assets", () => {
+  it("validates local assets and the pinned remote display models", () => {
     const workspace = resolve(import.meta.dirname, "../..");
     const configPath = resolve(workspace, "public/config/game.json");
     const config = validateGameConfig(
@@ -41,6 +41,7 @@ describe("shipped game configuration", () => {
     ];
 
     for (const assetPath of localPaths) {
+      if (/^https?:\/\//u.test(assetPath)) continue;
       const absolutePath = resolve(
         publicDirectory,
         assetPath.replace(/^[/\\]+/u, ""),
@@ -52,6 +53,12 @@ describe("shipped game configuration", () => {
     }
 
     expect(config.avatar.modelPath).toMatch(/^\/models\/.+\.vrm$/u);
+    expect(config.avatarTracking.hands.modelPath).toBe(
+      "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+    );
+    expect(config.avatarTracking.face.modelPath).toBe(
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+    );
   });
 
   it("ships the pinned official hand and face model bundles intact", () => {

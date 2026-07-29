@@ -33,7 +33,7 @@
     "relaxMs": 300,
     "hands": {
       "enabled": true,
-      "modelPath": "/models/hand_landmarker.task",
+      "modelPath": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "roiScale": 1.6,
       "handednessSwap": false,
       "minDetectionConfidence": 0.5,
@@ -42,7 +42,7 @@
     },
     "face": {
       "enabled": true,
-      "modelPath": "/models/face_landmarker.task",
+      "modelPath": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5

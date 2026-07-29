@@ -146,7 +146,7 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 - [ ] workflow 中的 `VITE_BASE_PATH` 仍與 `/magic-garden-yoga/` 一致。
 - [ ] `public/config/game.json` 的模型、圖片、task 與 WASM 路徑全部存在。
 - [ ] `public/models/magic-garden-guide.vrm` 已納入提交，檔名大小寫完全一致。
-- [ ] `public/models/hand_landmarker.task` 與 `face_landmarker.task` 已納入提交，SHA-256 符合 `THIRD_PARTY_NOTICES.md`。
+- [ ] 官方 Hand／Face 固定版網址可存取；供離線切換的 `public/models/hand_landmarker.task` 與 `face_landmarker.task` 亦已納入提交，SHA-256 符合 `THIRD_PARTY_NOTICES.md`。
 - [ ] `pnpm install --frozen-lockfile`、typecheck、test、build 全部通過。
 - [ ] repository 未包含憑證、token、`.env`、攝影機截圖或學生個資。
 - [ ] 模型、姿勢圖片與 `THIRD_PARTY_NOTICES.md` 的檔名及作者資訊一致。
@@ -158,8 +158,8 @@ GitHub Pages 網址與 localhost 是不同 origin，攝影機權限不會沿用�
 
 - [ ] 頁面 URL 位於 `/magic-garden-yoga/`。
 - [ ] HTML、JS、CSS、`config/game.json` 都回應 200。
-- [ ] `magic-garden-guide.vrm`、五張姿勢圖、`pose_landmarker_full.task`、
-  `hand_landmarker.task` 與 `face_landmarker.task` 回應 200。
+- [ ] `magic-garden-guide.vrm`、五張姿勢圖與 `pose_landmarker_full.task` 回應 200。
+- [ ] `storage.googleapis.com` 上的官方 `hand_landmarker.task` 與 `face_landmarker.task` 回應 200。
 - [ ] MediaPipe WASM loader 與 `.wasm` 回應 200；`.wasm` 使用合理 MIME。
 - [ ] Console 沒有 404、mixed content、Worker、WebAssembly 或 WebGL 錯誤。
 - [ ] 攝影機權限、單人／多人提示、全身入鏡與分數都正常。
