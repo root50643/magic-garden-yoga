@@ -48,8 +48,8 @@ function validConfig(): GameConfig {
         roiScale: 1.6,
         handednessSwap: false,
         wristRotationEnabled: true,
-        wristRotationInfluence: 0.85,
-        wristMaxAngleDegrees: 105,
+        fingerSpreadInfluence: 1,
+        fingerSpreadMaxDegrees: 28,
         minDetectionConfidence: 0.5,
         minPresenceConfidence: 0.5,
         minTrackingConfidence: 0.5,
@@ -174,8 +174,8 @@ describe("validateGameConfig", () => {
     (
       config.avatarTracking.hands as unknown as Record<string, unknown>
     ).wristRotationEnabled = "yes";
-    config.avatarTracking.hands.wristRotationInfluence = 1.1;
-    config.avatarTracking.hands.wristMaxAngleDegrees = 181;
+    config.avatarTracking.hands.fingerSpreadInfluence = 2.1;
+    config.avatarTracking.hands.fingerSpreadMaxDegrees = 61;
     config.avatarTracking.face.minPresenceConfidence = -0.1;
 
     expect(() => validateGameConfig(config)).toThrow(ConfigValidationError);
@@ -197,10 +197,10 @@ describe("validateGameConfig", () => {
             "avatarTracking.hands.wristRotationEnabled",
           ),
           expect.stringContaining(
-            "avatarTracking.hands.wristRotationInfluence",
+            "avatarTracking.hands.fingerSpreadInfluence",
           ),
           expect.stringContaining(
-            "avatarTracking.hands.wristMaxAngleDegrees",
+            "avatarTracking.hands.fingerSpreadMaxDegrees",
           ),
           expect.stringContaining(
             "avatarTracking.face.minPresenceConfidence",

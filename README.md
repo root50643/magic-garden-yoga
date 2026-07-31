@@ -9,8 +9,9 @@
 ## 目前功能
 
 - MediaPipe Pose Landmarker 在 Web Worker 中執行，最多辨識兩人並阻止多人狀態累積進度。
-- 額外的 MediaPipe Hand／Face Landmarker 在獨立 Worker 中帶動 VRM 手腕、手指、眨眼與嘴型；這些資料只供人物顯示，完全不參與瑜珈分數或保持計時。
+- 額外的 MediaPipe Hand／Face Landmarker 在獨立 Worker 中帶動 VRM 手腕、手指、眨眼與嘴型；手腕使用完整 3D 掌面 quaternion，沿最短旋轉路徑平滑追蹤，持續的 180° 翻掌也能完整到達。
 - `@pixiv/three-vrm` 載入 VRM，準備畫面會即時帶動人物的軀幹、手臂、腿、腳掌、手指與模型已提供的表情。
+- 準備與闖關畫面以 VRM 魔法夥伴為主視覺，鏡像攝影機縮成浮動小視窗；桌機闖關時位於右下角。身體骨架、雙手 21 點與臉部輪廓 overlay 只提供視覺回饋，其中手／臉資料完全不參與瑜珈分數或保持計時。
 - 內建山式、樹式、戰士二式、椅子式、星星式；關卡數量由 `game.json` 決定。
 - 每關可以獨立設定通過分數與保持秒數；未設定時使用全域預設值。
 - 3D 關節角度、相對位置、距離比例、左右鏡像、EMA 平滑與 500 ms 追蹤寬限。
@@ -92,8 +93,8 @@ pnpm preview
       "roiScale": 1.6,
       "handednessSwap": false,
       "wristRotationEnabled": true,
-      "wristRotationInfluence": 0.85,
-      "wristMaxAngleDegrees": 105
+      "fingerSpreadInfluence": 1,
+      "fingerSpreadMaxDegrees": 28
     },
     "face": {
       "enabled": true,
@@ -117,6 +118,9 @@ pnpm preview
 - `poses[].holdSeconds` 會覆蓋 `timing.defaultHoldSeconds`。
 - `avatar.mirrored` 只水平翻轉 VRM 畫面，不交換骨骼或改變評分。
 - `avatarTracking` 是選用的顯示同步功能；可整體關閉，或只關閉 `hands`／`face`。載入或推論失敗只會顯示提醒，不會阻止身體姿勢闖關。
+- `wristRotationEnabled` 只控制是否套用手腕追蹤。手腕沒有最終姿勢角度上限或幅度衰減；完整掌面 quaternion 會沿最短路徑、依來源時間做速度平滑，因此短暫跳點不會瞬間翻腕，持續朝向則仍會完整到達。
+- `fingerSpreadInfluence` 調整食指到小指的張指幅度，`fingerSpreadMaxDegrees` 設定這四指相對模型休息姿勢的最大張指角。拇指不使用強度倍率：MediaPipe 的 1→2、2→3、3→4 三段有號掌面局部方向會逐節解算到 VRM 父子骨。詳細檢查順序見[設定檔手冊](docs/CONFIGURATION.md#手腕與手指微調順序)。
+- 手腕直接由 Hand Landmarker 的 raw world landmarks 建立掌面方向；拇指則使用以手腕為原點、掌寬正規化並平滑後的 world landmarks。拇指不依賴指尖距離、掌心吸附或角度 cone，避免握拳時被錯誤拉到手背；來源 timestamp 與 render quaternion 平滑則用來抑制靜止抖動。這些處理只影響人物顯示，不參與瑜珈分數。
 - 公開版預設從 Google 的固定版網址下載 Hand／Face 模型，並從釘選版本的 unpkg 下載 MediaPipe WASM，以避開 GitHub Pages 大檔速度限制；只有靜態程式與模型被下載，攝影機影像與 landmark 不會送出瀏覽器。校內或離線環境可把兩個 `modelPath` 改回 `/models/hand_landmarker.task`、`/models/face_landmarker.task`，並把 `wasmPath` 改回 `/mediapipe/wasm`。
 - `poses[].allowMirrored` 才決定評分器是否接受左右相反的做法。
 - `challengeId` 是本機排行榜的儲存分區。目前開發版沿用 `magic-garden-yoga-dev`；啟動時只保留目前 ID 的榜單，並刪除同遊戲前綴的其他舊榜單。要重置目前榜單時直接刪除對應 Local Storage，不需要為每次調整建立新 ID。
@@ -135,7 +139,7 @@ http://localhost:5173/?poseDebug=1
 http://localhost:5173/?avatarDebug=1
 ```
 
-此模式會合成循環的彎指、眨眼、張嘴與微笑資料；它不會改變 Pose Landmarker、分數或排行榜。正式真人驗收仍須關閉此參數，實際測試雙手、臉部光線及追蹤效能。
+此模式會合成循環的彎指、眨眼、張嘴與微笑資料；只要 VRM 載入成功，即使沒有攝影機也可按「開始冒險」，用來檢查闖關頁的主要 VRM、右下角小攝影機與 responsive 版面。這個例外只解除顯示驗收時的開始條件，不會停用或改寫 Pose Tracker；沒有真人 `PoseFrame` 時不能驗證姿勢分數、保持進度或實際 overlay 對位。合成的手／臉資料也不會改變分數或排行榜。正式真人驗收仍須關閉此參數，實際測試全身姿勢、雙手、臉部光線及追蹤效能。
 
 ## 支援範圍
 

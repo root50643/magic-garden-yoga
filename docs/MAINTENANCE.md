@@ -124,7 +124,7 @@ Pose 模型輸出的關鍵點順序或 world coordinate 行為如果改變，既
 2. 建置後載入至少一個 VRM 1.0 模型；如仍支援舊素材，也測 VRM 0.x。
 3. 檢查 Humanoid normalized bone API、`VRMUtils.rotateVRM0`、材質、陰影、模型 bounds 與 dispose 行為。
 4. 以不對稱動作驗證左右：只舉左手、只彎右膝、單腳點地。
-5. 使用 `?avatarDebug=1` 檢查左右手腕翻掌、五指骨、眨眼、張嘴 `aa` 與 `happy` preset，再用真人逐側翻掌、張手／握拳及其他嘴型驗證。
+5. 使用 `?avatarDebug=1` 檢查左右手腕完整掌面旋轉、四指張合、拇指三節、五指骨、眨眼、張嘴 `aa` 與 `happy` preset；再用真人逐側完成正反向 180° 翻掌、張手、握拳、勝利手勢、拇指食指輕觸及其他嘴型驗證。
 6. 切換 `avatar.mirrored`，確認只翻畫面、不讓骨骼跨過軀幹；它也不應改變 `handednessSwap`。
 7. 檢查 GPU／記憶體：重整或重新進入時不應持續增加 WebGL context。
 
@@ -270,7 +270,7 @@ location.reload();
 
 - `getUserMedia` 只要求 video，明確設定 `audio: false`。
 - 每幀轉成 `ImageBitmap` 後在本機 Pose／Avatar Worker 處理。
-- Worker 只回傳身體／手部關鍵點、臉部 blendshape 係數與推論時間；不回傳影像或臉部網格。
+- Worker 只回傳身體／手部關鍵點、供 overlay 使用的 normalized 臉部 landmarks、臉部 blendshape 係數與推論時間；不回傳影像或頭部 transformation matrix。
 - 不錄影、不截圖、不上傳影像、不呼叫辨識後端。
 - 暱稱與成績只寫入本機 Local Storage。
 
@@ -385,13 +385,15 @@ VRM 未準備完成會阻止「開始」按鈕；攝影機仍可顯示並不代�
 
 1. 在 Network 確認 `hand_landmarker.task`、`face_landmarker.task`、loader 與 WASM 全部回應 200，不是 HTML 錯誤頁。
 2. 檢查準備畫面的非致命提醒，以及 portal 元素的 `data-hand-tracking`、`data-face-tracking`、`data-avatar-progress`；這些狀態不會出現在瑜珈分數。
-3. 開啟 `?avatarDebug=1`。合成資料會週期性翻動左右手腕、彎指、眨眼與張嘴；若手腕不動，先檢查 VRM `leftHand`／`rightHand` 與近端指骨，若 debug 正常、真人不正常，再查 MediaPipe、光線與 ROI。
+3. 開啟 `?avatarDebug=1`。只要 VRM 載入成功，即使攝影機不可用也能按「開始冒險」，以檢查闖關頁主要 VRM、右下角小攝影機與 responsive 版面；合成資料會週期性翻動左右手腕、彎指、眨眼與張嘴。若手腕不動，先檢查 VRM `leftHand`／`rightHand` 與近端指骨，若 debug 正常、真人不正常，再查 MediaPipe、光線與 ROI。
 4. 真人測試時保持全身入鏡，但讓手指輪廓朝向鏡頭、避免手掌貼在衣服或臉上。快速移動後停住半秒，排除正常節流和平滑。
 5. 逐側翻掌、張手／握拳。若左手資料始終套到右手，先確認不是 `avatar.mirrored` 造成觀看錯覺；確定解剖學左右真的錯誤後，才切換 `avatarTracking.hands.handednessSwap`。
 6. 手常被裁掉時稍微提高 `roiScale`；手在 ROI 內太小時稍微降低。每次改 0.1–0.2，並重測手放下、舉高、側伸與靠近臉。
 7. 臉部要接近正面、均勻受光，眼睛與嘴巴不可被口罩、頭髮或手遮住。只有部分表情無反應時，檢查 VRM 是否有對應 preset。
-8. 手腕旋轉太大或抖動時先降低 `wristRotationInfluence`；合理翻掌被截斷時再提高 `wristMaxAngleDegrees`。不要用 `handednessSwap` 或 `avatar.mirrored` 修正旋轉幅度。
+8. 手腕抖動時先比較 Hand raw world landmarks、ROI 是否裁到完整手掌，以及 6／10／15 FPS 的結果；右下角 2D overlay 穩定不代表 world z 穩定。`avatarTracking.smoothing` 可調顯示平滑與延遲，但手腕沒有幅度 influence 或最終角度上限，不要重新加入限制來遮掩 basis 或 parent-local 轉換錯誤。
 9. 追蹤消失後仍短暫維持是 `lostHoldMs` 的預期行為；手腕／手指回復太慢時降低 `relaxMs`，回復太突兀時提高。
+10. 四指張合太弱／太強時先調 `fingerSpreadInfluence`，只有最大張指被截斷才調 `fingerSpreadMaxDegrees`。拇指跑到手背、掌內或手臂時沒有倍率可微調，應檢查 MediaPipe 1→2、2→3、3→4 的有號方向及逐節 parent-local 解算。完整順序見[設定檔手冊](CONFIGURATION.md#手腕與手指微調順序)。
+11. 先確認 `avatarMotionStabilizer` 測試通過；穩定器的快慢分類必須依速度，21 點必須使用共用 alpha，且兩個 Hand frame 間應保持 local wrist target。不要只看 normalized 2D overlay 判斷 3D 解算品質。
 
 手／臉 tracker 故障、被關閉或當下看不到都不應改變姿勢總分、保持光環或排行榜資格。若它們連帶使闖關停止，先執行：
 
@@ -400,6 +402,46 @@ pnpm test src/lib/avatarMotionIsolation.integration.test.ts
 ```
 
 再檢查是否有人把 `AvatarMotionFrame` 接進 `evaluatePose`、`HoldTracker` 或 ready 條件。
+
+`avatarDebug=1` 的無攝影機開始能力只供版面與 VRM 顯示驗收：它不會產生身體 `PoseFrame`，不會讓姿勢通過，也不能取代分數、保持計時、overlay 對位或攝影機效能測試。Pose Tracker 在此模式仍維持原邏輯；維護時應保留這項隔離，並在移除 query parameter 後完成真人驗收。
+
+### 手腕跨越正負 180° 時仍翻轉
+
+目前 runtime 不應逐幀呼叫無狀態的相容 wrapper。`VrmPreview` 必須為左右手各自保留 `WristSolverState`，並把 `updatedAtMs` 連同上一個 state 傳給 `solveContinuousWristLocalQuaternion()`：
+
+- 手腕來源只使用 Hand raw world landmarks 建立完整 palm quaternion；不要以 ROI normalized z 或 2D overlay 代替。
+- 完整 palm quaternion 會先校正模型 rest palm，再經目前 forearm parent world quaternion 解回 local target；solver 不拆受限 swing／twist，也沒有最終姿勢 angle cap 或 influence。
+- 相同旋轉的 `q`／`-q` 表示會先對齊 hemisphere，target 也相對上一個 local quaternion 沿 SO(3) 最短路徑前進。
+- runtime 以來源 timestamp 的時間差和 540°/s 速度 budget 平滑追上目標。這不是姿勢上限：單幀 180° 不會瞬間跳過去，但相同方向持續存在時必須在後續新 timestamp 完整到達。
+- 較舊 timestamp 會被拒絕；同一個 10 FPS 手部 frame 在多個 render frame 間不得重複推進 solver。不要恢復「大角度一律拒絕，等第二候選確認」的邏輯，否則持續的大幅翻掌可能飢餓而永遠到不了。
+- `VrmPreview` 只在 render 層以 frame-rate independent slerp 降低顯示噪音；不要再於來源層疊加 low-pass，否則完整翻掌會因多層延遲而看起來像被截斷。這項 render 平滑不應改變 persistent target 的最終方向。
+- 狀態應在該手超過遺失維持時間並進入 relax 時重置，不能每個 render frame 或每次 React re-render 都重建。
+
+先執行：
+
+```bash
+pnpm test src/lib/wristRetarget.test.ts src/lib/avatarMotion.test.ts
+```
+
+測試涵蓋完整世界旋轉、非交換順序的 forearm parent、持續 180° 完整到達、連續大旋轉不飢餓、單幀翻轉的速度平滑、正反向越過接縫、quaternion 正負等價、較舊 timestamp 與左右獨立 state。自動測試通過後，仍要真人逐側從掌心朝前緩慢翻到手背；若持續目標永久停住，應修 solver、basis 或 parent-local 轉換，不是新增角度限制。
+
+### 握拳時拇指跑到手背、掌內或手腕
+
+拇指顯示不應由「握拳程度」或指尖距離猜測。`VrmPreview` 與 [`../src/lib/thumbRetarget.ts`](../src/lib/thumbRetarget.ts) 的必要條件如下：
+
+1. MediaPipe 點 1→2、2→3、3→4 必須分別對應 VRM `thumbMetacarpal`、`thumbProximal`、`thumbDistal`，不可只用點 4 到掌心的距離驅動整根拇指。
+2. 每段要保留完整有號 3D 方向。先移除 tracked palm quaternion，取得 palm-local segment；只用無號三點夾角會遺失「往掌心或往手背」的方向。
+3. 把 palm-local segment 轉到目前 VRM palm world 後，以掌面法線（必要時掌長方向）穩定 bone roll，再依掌骨→近端→末端順序解算。下一節必須使用同一 render frame 中上一節已實際套用並更新 matrix 後的 parent world quaternion；使用尚未畫出的預測父姿勢會在握拳過渡時暫時折到手背。
+4. `solveBoneLocalDirection()` 只求讓 authored rest segment 指向量測方向的 minimum swing，保留模型 rest roll。不要加入 palm-center attraction、tip proximity closure、額外 opposition 或相對 rest angle cone。
+5. 檢查 VRM 是否真的有標準三節拇指骨，且 normalized bone 的父子順序正確。只有單側錯誤時，再確認 handedness 與該側 rest axis；`avatar.mirrored` 只翻畫面，不能修骨鏈。
+
+先執行：
+
+```bash
+pnpm test src/lib/thumbRetarget.test.ts src/lib/wristRetarget.test.ts
+```
+
+測試應固定三段 landmark 對應、有號 palm-local 方向、整手 3D 旋轉不重複套用、模型 rest roll，以及父骨已旋轉後的下一節 local solve。最後用真人左右手分別測試張掌、掌心朝前握拳、掌背朝前握拳、勝利手勢與緩慢翻掌；拇指應隨每節真實方向移動，且不穿到手背或手腕。
 
 ### 正確度分數偏低或進度不動
 
@@ -417,15 +459,16 @@ pnpm test src/lib/avatarMotionIsolation.integration.test.ts
 
 不要直接把所有 tolerance 放大或把門檻降到極低；這會使錯誤姿勢也通過。依[校準流程](#姿勢規則維護與校準)逐項處理。
 
-### 骨架點看起來與影片錯位
+### 身體、雙手或臉部 overlay 與影片錯位
 
-影片使用鏡像和 `object-fit: cover`；overlay 會依來源 video 尺寸、容器比例、裁切 offset 與鏡像重新映射。若修改 camera CSS：
+小攝影機影片使用鏡像和 `object-fit: cover`；身體骨架、雙手 21 點與臉部輪廓 overlay 都會依來源 video 尺寸、容器比例、裁切 offset 與鏡像重新映射。若修改 camera CSS：
 
 - 同步檢查 `mapNormalizedPointToCover`。
 - 執行 `SkeletonOverlay.test.ts`。
 - 測 16:9、4:3、窄螢幕與視窗縮放。
+- 在高畫質確認手部連線／節點、臉部輪廓／密點；在低畫質確認手部連線與臉部輪廓仍存在，但省略密點。
 
-Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則分數與原始 landmark 判斷。
+手／臉 overlay 只讀取 `AvatarMotionFrame`，不進入瑜珈評分；身體 overlay 雖顯示 `PoseFrame`，canvas 本身也不寫回評分器。Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則分數與原始 landmark 判斷。
 
 ### 設定檔載入失敗
 
@@ -466,8 +509,11 @@ Overlay 錯位是顯示問題，不代表評分座標一定錯誤；先用規則
 - [ ] 正式 `challengeId`、標題、姿勢順序、每關門檻與保持秒數已確認。
 - [ ] `game.json` 引用的每個圖片、task、WASM 目錄與 VRM 都存在。
 - [ ] `?poseDebug=1` 已由多位真人完成正向與負向校準。
-- [ ] `?avatarDebug=1` 已驗證 VRM 左右手指骨與表情 preset；移除參數後也完成真人手／臉追蹤。
+- [ ] `?avatarDebug=1` 已在無攝影機時進入闖關頁，驗證主要 VRM、小攝影機與 responsive 版面，以及左右手指骨與表情 preset；移除參數後也完成真人全身、手／臉追蹤與評分。
+- [ ] 左右手緩慢正反向完成 180° 翻掌都能到達完整方向且沒有突然反轉；張指、掌心／掌背朝前握拳與勝利手勢時，拇指三節不跑到手背、掌內或手腕。
 - [ ] 改變手指與臉部動作不會改變姿勢分數、保持進度或排行榜資格。
+- [ ] 準備／闖關頁以主要 VRM 為動作回饋；桌機右下角及窄螢幕 responsive 小攝影機都未遮住姿勢卡、提示、保持光環或按鈕。
+- [ ] 小攝影機顯示身體、雙手與臉部 overlay；切換高／低畫質後細節層級符合預期，且手／臉 overlay 不影響分數。
 - [ ] Chrome、Edge 各完成一次從允許權限到五關完成與排行榜提交。
 - [ ] 倒數與轉場不計時；跳過後不能寫榜。
 - [ ] 多人、無人、遮擋與出框不累積進度。

@@ -64,8 +64,8 @@ pnpm build
       "roiScale": 1.6,
       "handednessSwap": false,
       "wristRotationEnabled": true,
-      "wristRotationInfluence": 0.85,
-      "wristMaxAngleDegrees": 105,
+      "fingerSpreadInfluence": 1,
+      "fingerSpreadMaxDegrees": 28,
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5
@@ -170,6 +170,8 @@ pnpm build
 
 這一組 MediaPipe Hand／Face Landmarker 只產生 `AvatarMotionFrame`，交給 VRM 顯示手掌／手腕方向、手指彎曲、眨眼、嘴型、微笑與驚訝表情。評分器、`HoldTracker` 與排行榜只接收 `PoseFrame`；因此更改本節參數、偵測不到手／臉，或模型載入失敗，都不會提高、降低或阻止瑜珈分數。
 
+小攝影機上的雙手連線／節點與臉部輪廓 overlay 也讀取同一份 `AvatarMotionFrame`，用途只是讓玩家知道手、臉是否被看見。高畫質會額外顯示手部節點與較密的臉部點，低畫質保留手部連線及臉部輪廓；兩種模式都不把這些點送進姿勢 constraint。
+
 ### 共用欄位
 
 | 欄位 | 型別／範圍 | 說明 |
@@ -193,11 +195,13 @@ pnpm build
 | `roiScale` | 有限數字，`> 0` | 以 Pose 肩寬為基準的手腕裁切範圍；預設 1.6 |
 | `handednessSwap` | boolean | 只在手指明顯套到另一側 VRM 手時交換左右；不應用來實作鏡像畫面 |
 | `wristRotationEnabled` | boolean | 是否以手掌 3D 朝向驅動 VRM `leftHand`／`rightHand` 骨 |
-| `wristRotationInfluence` | 有限數字，0–1 | 手腕追蹤影響量；預設 0.85，降低可減少抖動或模型骨軸差異造成的誇張旋轉 |
-| `wristMaxAngleDegrees` | 有限數字，0–180 | 相對模型休息姿勢的最大手腕旋轉；預設 105°，避免錯誤點造成整隻手翻轉 |
+| `fingerSpreadInfluence` | 有限數字，0–2 | 食指到小指相對休息姿勢的張合倍率；預設 1，0 會保留模型原本的指間角 |
+| `fingerSpreadMaxDegrees` | 有限數字，0–60 | 每根近端手指相對休息姿勢可增加或減少的最大張指角；預設 28° |
 | `minDetectionConfidence` | 有限數字，0–1 | 初次手部偵測信心門檻 |
 | `minPresenceConfidence` | 有限數字，0–1 | 手部存在信心門檻 |
 | `minTrackingConfidence` | 有限數字，0–1 | 影片手部追蹤信心門檻 |
+
+`fingerSpreadInfluence` 與 `fingerSpreadMaxDegrees` 都是必填欄位；舊設定檔不會自動補預設值，缺少任一欄位會進入設定載入錯誤頁。手腕幅度與拇指閉合不再有設定倍率或角度上限欄位；從舊版本升級時，應刪除自訂設定中的舊手腕／拇指幅度欄位。
 
 玩家要全身入鏡時，原始畫面中的手通常很小。額外 Worker 先利用 Pose Landmarker 的左右手腕、拇指、食指與小指附近點，分別裁出左右手 ROI，再把兩個區域放大到固定的 320 × 320 面板後交給 Hand Landmarker。這只改善人物顯示，不會把 21 個手部點送進瑜珈評分器。
 
@@ -209,7 +213,27 @@ pnpm build
 
 `handednessSwap` 與 `avatar.mirrored` 是不同問題：前者交換追蹤資料送到哪一隻 VRM 手；後者只是把最終 canvas 水平翻轉。一般情況維持 `false`，只在逐側握拳驗證證明左右相反時才設為 `true`。
 
-手腕方向只使用 Hand Landmarker 的 21 個 world landmarks。程式以手腕點 0 與四個掌指關節點 5、9、13、17 建立正交手掌座標系，再和 VRM 實際手骨的休息座標系對齊；因此不需要硬編碼左右 Euler 角。若手腕太敏感，先降低 `wristRotationInfluence`；若正常翻掌被限制，再小幅提高 `wristMaxAngleDegrees`。`avatar.mirrored` 仍只改畫面，不參與這項計算。
+手腕方向只使用 Hand Landmarker 的 21 個 raw world landmarks。程式以手腕點 0 與四個掌指關節點 5、9、13、17 建立正交手掌座標系，再和 VRM 實際手骨的休息座標系對齊；因此不需要硬編碼左右 Euler 角。
+
+每個新 Hand timestamp 會先將 21 點扣除手腕位移，以三組 MCP 掌寬估計的中位數正規化，再依「每 100ms 位移量」選擇自適應 half-life。21 點共用同一個 alpha，避免翻掌時指尖比指根更快而把直指暫時濾彎；小於 0.006 掌寬的全手形狀變化保持不動，明確手勢則快速跟隨。缺少有效 world landmarks 或掌面退化時會保持上一個目標，不會把不一致的 2D crop z 當成 3D 手指資料。
+
+左右手各自保存上一個來源 timestamp、來源掌面 quaternion 與 local VRM 目標。完整掌面 quaternion 會先校正到模型休息掌面，再透過目前前臂 parent world quaternion 解回 Hand bone 的 local quaternion；不再拆成有角度上限的 swing／twist，也不乘幅度 influence。來源與目標 quaternion 會先對齊同一 hemisphere，然後沿 SO(3) 最短路徑前進。
+
+手腕 follower 目前以來源 timestamp 計算時間差，最多以 540°/s 追上新目標；這只是每秒追蹤速度平滑，不會改變最終姿勢。即使第一幀是 180° 翻掌，只要該方向持續存在，人物會逐幀完整到達，而不是停在某個角度上限。同一 Hand timestamp 不會在多個 render frame 重複推進；較舊 timestamp 會被忽略。`avatarTracking.smoothing` 控制 render quaternion 靠近目標的速度，可降低可見抖動，但同樣不是最終幅度限制。`avatar.mirrored` 仍只改畫面，不參與這項計算。
+
+拇指不使用「指尖離掌心多近」來猜握拳，也不把拇指吸向掌心。程式直接讀取 MediaPipe 點 1→2、2→3、3→4 的三段有號 3D 方向，先移除追蹤手掌旋轉，保留在掌面局部座標中的屈曲、張開與對掌方向，再依 VRM 拇指掌骨、近端、末端的父子順序逐節解算 parent-local quaternion。掌面法線（接近平行時改用掌長方向）提供第二個方向，避免單一骨段接近反向時任選 180° 旋轉軸。每一節都使用同一 render frame 中前一節已實際套用的 world 旋轉，所以不會補償尚未到達的父骨目標，也不會把同一個掌面旋轉重複套到三節。這條路徑沒有指尖距離 closure、掌心吸附或相對 rest 的角度 cone。
+
+### 手腕與手指微調順序
+
+先保留預設值，以 `?avatarDebug=1` 確認 VRM 手骨、指骨與休息姿勢可正常動作；再關閉 debug，用真人依序測試手掌朝前、掌心朝內、緩慢翻到手背、張手、握拳、勝利手勢與拇指食指輕觸：
+
+1. **手腕完全不跟隨**：確認 `wristRotationEnabled` 為 `true`，再檢查 Hand world landmarks 是否有 21 點、掌面 basis 是否有效，以及模型是否有標準 `leftHand`／`rightHand` 骨。這不是鏡像設定問題。
+2. **手腕抖動或延遲**：先檢查光線、ROI 裁切與 3D world landmarks；右下角穩定的 2D overlay 不代表深度也穩定。`avatarTracking.smoothing` 可在回應速度與顯示平滑間取捨，但不要用縮小旋轉幅度或加入角度上限掩蓋錯誤座標。
+3. **手掌往後或持續 180° 翻掌仍到不了**：這不是可設定幅度。檢查完整 palm quaternion、模型 rest palm basis、parent world 到 local 的轉換與來源 timestamp；速度 follower 應只延後到達，不應永久停住。
+4. **四指張得不夠或太誇張**：先以 0.1 為單位調整 `fingerSpreadInfluence`；只有大幅張指仍被截斷時，再以 3–5° 調整 `fingerSpreadMaxDegrees`。握拳時演算法會隨近端彎曲淡化張指，若仍抖動可降低這兩項。
+5. **拇指跑到手背、手腕或手臂**：這不是 closure 強度問題，設定檔沒有拇指倍率可調。逐節檢查 1→2、2→3、3→4 的有號 world segment、掌面局部轉換、VRM 標準拇指骨順序與 parent-local 解算；不要改回指尖距離、掌心吸附或角度 cone。
+
+完成後要逐側測試左右手，並讓手掌緩慢越過接近正負 180° 的翻掌接縫。若只在某一隻手出錯，先檢查該側 VRM rest bone 軸與追蹤品質；不要用 `handednessSwap` 或 `avatar.mirrored` 補償旋轉幅度。
 
 ### `avatarTracking.face`
 
@@ -221,7 +245,7 @@ pnpm build
 | `minPresenceConfidence` | 有限數字，0–1 | 臉部存在信心門檻 |
 | `minTrackingConfidence` | 有限數字，0–1 | 影片臉部追蹤信心門檻 |
 
-Face Landmarker 只要求一張臉，輸出 blendshape 係數；目前不輸出臉部網格或頭部 transformation matrix。程式會把相關係數映射到 VRM 的 `blinkLeft`／`blinkRight`（缺少時使用共用 `blink`）、`aa`、`ih`、`ou`、`ee`、`oh`、`happy` 與 `surprised` preset。模型沒有某個 expression preset 時會直接略過，不是致命錯誤。
+Face Landmarker 只要求一張臉，回傳 blendshape 係數與 normalized face landmarks。程式把 landmarks 交給小攝影機的 display-only 臉部 overlay，並把相關 blendshape 映射到 VRM 的 `blinkLeft`／`blinkRight`（缺少時使用共用 `blink`）、`aa`、`ih`、`ou`、`ee`、`oh`、`happy` 與 `surprised` preset；目前不使用頭部 transformation matrix。模型沒有某個 expression preset 時會直接略過，不是致命錯誤。
 
 公開版預設使用 Google 官方固定版模型網址，避免 GitHub Pages 對大型 `.task` 下載過慢。若環境需要完全離線或禁止外部靜態資產，把 Hand／Face 的 `modelPath` 分別改成 `/models/hand_landmarker.task` 與 `/models/face_landmarker.task`；兩份相同雜湊的模型已包含在 `public/models/`。
 

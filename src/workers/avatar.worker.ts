@@ -502,12 +502,14 @@ function detectFace(
   if (!faceLandmarker) return null;
   const result = faceLandmarker.detectForVideo(bitmap, timestampMs);
   const categories = result.faceBlendshapes[0]?.categories;
-  if (!categories) return null;
+  const faceLandmarks = result.faceLandmarks[0];
+  if (!categories && !faceLandmarks) return null;
 
   return {
     updatedAtMs: timestampMs,
+    landmarks: (faceLandmarks ?? []).map(copyHandLandmark),
     blendshapes: Object.fromEntries(
-      categories
+      (categories ?? [])
         .filter(
           ({ categoryName, score }) =>
             categoryName.length > 0 && Number.isFinite(score),

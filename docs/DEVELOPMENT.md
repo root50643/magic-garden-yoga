@@ -33,7 +33,7 @@ flowchart LR
     E --> H["HoldTracker"]
     H --> A["App 狀態機／關卡轉場"]
     S --> R["VRM retarget"]
-    S --> O["攝影機骨架 overlay"]
+    S --> O["小攝影機 overlay"]
     F --> Q{"恰好一人？"}
     C --> AT["AvatarMotionTracker"]
     Q --> AT
@@ -41,6 +41,7 @@ flowchart LR
     AW --> HF["Hand／Face Landmarker"]
     HF --> AF["AvatarMotionFrame"]
     AF --> R
+    AF --> O
     A --> L["Local Storage 排行榜"]
 ```
 
@@ -49,6 +50,7 @@ flowchart LR
 - MediaPipe 物件只存在 Worker；主執行緒只接收可序列化的 `PoseFrame` 與 `AvatarMotionFrame`。
 - 評分器只依賴 `DetectedPose`、`PoseDefinition` 與門檻，不依賴 React、攝影機或 VRM。
 - VRM 的身體顯示使用平滑後骨架；手指與表情另走 `AvatarMotionFrame`。`evaluatePose` 與 `HoldTracker` 沒有這個型別的輸入，因此手／臉資料在結構上無法改變分數。
+- 小攝影機 overlay 的手部 21 點與臉部輪廓也只讀取 `AvatarMotionFrame`；它們是追蹤狀態視覺化，不是額外的姿勢 constraint。
 - VRM 顯示與姿勢評分互不控制。模型看起來正確不代表該關規則一定匹配，反之亦然。
 - `game.json` 在使用前會完整驗證；內容錯誤會進入致命錯誤頁，而不是讓錯誤值流入遊戲。
 
@@ -74,6 +76,17 @@ boot → ready → countdown → playing ↔ transition → complete
 在 `playing` 期間，即使暫時沒有偵測到人，總成績時間仍持續；只有保持進度會依追蹤寬限暫停或重置。倒數與關卡轉場不計入總時間。跳過按鈕目前在進入該關 8 秒後出現；跳過會繼續流程，但把整局標記為不可寫入排行榜。
 
 狀態機會忽略不符合目前 phase 的舊計時器事件，防止快速重新開始或卸載時發生跳關。
+
+## 畫面配置
+
+準備頁與闖關頁都以 `portal-card` 裡的 VRM 魔法夥伴為主要動作回饋，而不是把攝影機放大成主畫面：
+
+- 準備頁左側顯示標題、狀態與開始按鈕，主要 VRM 在大型傳送門區域即時模仿玩家。
+- 闖關頁左側顯示關卡進度、姿勢卡、提示、正確度與保持光環；主要 VRM 持續佔據大型傳送門區域，方便玩家比較動作。
+- 桌機的鏡像攝影機在 ready、countdown、playing 與 transition 階段都是右下角浮動小視窗，顯示追蹤狀態、分數與 overlay；完成、載入或致命錯誤頁會隱藏。
+- 寬度不超過 820px 時，準備頁的小攝影機改為底部置中；遊戲階段仍固定在右下角並縮小，避免蓋住主要操作區。
+
+攝影機小視窗中的身體骨架來自 `PoseFrame`；雙手連線／節點與臉部輪廓來自 `AvatarMotionFrame`。overlay 本身不寫回任何 tracker，也不改變 VRM、分數或保持進度。若調整 `.portal-card`、`.camera-panel--*` 或 camera 的 `object-fit`／鏡像 CSS，必須同步驗收桌機、窄螢幕與 overlay 座標。
 
 ## 姿勢追蹤生命週期
 
@@ -133,19 +146,25 @@ Hand／Face task 共用本機 `public/mediapipe/wasm/`。由於 MediaPipe 建立
 
 [`../src/lib/avatarMotion.ts`](../src/lib/avatarMotion.ts) 提供不依賴 DOM 的轉換：
 
+- [`../src/lib/avatarMotionStabilizer.ts`](../src/lib/avatarMotionStabilizer.ts) 會在每個新 Hand timestamp 將 21 個 world landmarks 扣除手腕位移、以三組掌寬估計的中位數正規化，再以全手共用的速度感知 alpha 平滑。共用 alpha 可避免翻掌時指尖比 MCP 先移動而把直指暫時濾成彎指；相同實際速度在 6／10／15 FPS 也會採用近似的快慢 half-life。
 - 用 world landmarks 的手腕與四個 MCP 點建立經 Gram–Schmidt 正交化的 3D 掌面 basis；退化或近共線資料不產生旋轉。
 - VRM 載入時以 `Hand`、`IndexProximal`、`MiddleProximal`、`RingProximal`、`LittleProximal` 的世界位置建立模型休息 basis。每幀先完成前臂 retarget，再由當前 parent world quaternion 解出 Hand bone 的 local quaternion。
-- 手腕旋轉相對 rest pose 限幅、依 `wristRotationInfluence` 混合並沿用時間式平滑；只有 `worldLandmarks` 可用，ROI normalized z 不參與手腕 3D 方向。
-- 用 21 點三點夾角算出五指各關節的彎曲量；鏡像不改變角度。
-- 以 VRM normalized hand bones 的 rest direction 推導彎曲軸，從 rest quaternion 插值，避免每幀累加造成漂移。
+- [`../src/lib/wristRetarget.ts`](../src/lib/wristRetarget.ts) 為左右手各保存 `WristSolverState`：前一個來源 timestamp、來源掌面 quaternion 與上一個 VRM local target。完整掌面 quaternion 先以模型休息掌面校正，再經目前前臂 parent world quaternion 解成 Hand bone local quaternion；不再拆成受限的 swing／twist，也沒有最終角度硬上限或幅度衰減。
+- 來源與目標 quaternion 先對齊 hemisphere，再沿 SO(3) 最短路徑前進。每個新 Hand timestamp 依真實時間差套用 540°/s 的追蹤速度 budget；它只限制追上目標的速度，不改變目標本身，所以持續的 180° 翻掌仍會完整到達。來源層不再疊加第二次 low-pass；render 層以 frame-rate independent slerp 靠近 solver 目標。同一來源 timestamp 不重複推進，較舊 timestamp 被拒絕。追蹤超過 `lostHoldMs`、開始 relax 的第一幀就重置該手 state，骨骼則繼續平滑回 rest。
+- 手腕 3D 方向只使用 Hand Landmarker 的 raw `worldLandmarks`；ROI normalized x/y/z 不參與解算。
+- 食指到小指仍以 21 點三點夾角計算各關節彎曲量；鏡像不改變角度。直指時近端採約 8°、中末端採約 6°死區，死區後重新映射到完整彎曲範圍，因此能去除張手噪音而不犧牲握拳幅度。
+- 四指近端骨另外套用相對模型休息角的 abduction：`fingerSpreadInfluence` 控制倍率，`fingerSpreadMaxDegrees` 控制絕對上限；手指彎曲成拳時會淡化張指，降低不穩定抖動。
+- [`../src/lib/thumbRetarget.ts`](../src/lib/thumbRetarget.ts) 直接將 MediaPipe 1→2、2→3、3→4 對應到 VRM `thumbMetacarpal`、`thumbProximal`、`thumbDistal`。每段完整有號 3D 方向先轉成掌面局部座標，以移除已由手腕承擔的掌面旋轉，再轉回目前 VRM 掌面世界方向。
+- 三節拇指依父子順序解算 local frame。骨段方向是第一軸，VRM／追蹤掌面法線是穩定 roll 的第二軸；若骨段接近法線則改用掌長方向。下一節使用同一 render frame 中上一節已實際 slerp 並更新 matrix 後的 world quaternion 解回自己的 parent-local target，避免「預測父姿勢」與畫面父姿勢不同步。這保留實際的屈曲、張開與對掌方向，不使用 tip proximity、掌心吸附、額外 closure／opposition 訊號或相對 rest angle cone。
+- 食指到小指以 VRM normalized hand bones 的 rest direction 推導彎曲軸，從 rest quaternion 插值，避免每幀累加造成漂移。
 - 把 Face Landmarker 的 ARKit-like blendshapes 正規化成 VRM `aa`、`ih`、`ou`、`ee`、`oh`、左右眨眼、`happy` 與 `surprised`。
 - 嘴型權重會正規化，避免多個母音同時把 morph 過度推高。缺少的 VRM 骨或 expression preset 會略過。
 
-`smoothing` 控制 VRM 插值速度；眨眼的 attack／release 另採 frame-rate independent half-life，降低低 FPS 時忽快忽慢。詳盡參數見[設定檔手冊](CONFIGURATION.md#avatartracking)。
+`smoothing` 控制 VRM 插值速度；手腕、手指和眨眼都採 frame-rate independent half-life，降低不同螢幕更新率與 inference FPS 下忽快忽慢。詳盡參數見[設定檔手冊](CONFIGURATION.md#avatartracking)。
 
 ### 評分隔離
 
-`AvatarMotionFrame` 沒有進入 `evaluatePose`、`HoldTracker` 或遊戲狀態機。回歸測試 [`../src/lib/avatarMotionIsolation.integration.test.ts`](../src/lib/avatarMotionIsolation.integration.test.ts) 會在手腕、手指與表情資料大幅改變前後比較同一份身體 pose，要求分數完全相同。未來若新增視線、頭部或更細手勢，也必須維持這個 display-only 邊界，除非產品需求明確改變並另行設計評分規則。
+`AvatarMotionFrame` 沒有進入 `evaluatePose`、`HoldTracker` 或遊戲狀態機。它可同時驅動 VRM 與小攝影機上的雙手／臉部 overlay，但兩者都只是顯示消費者。回歸測試 [`../src/lib/avatarMotionIsolation.integration.test.ts`](../src/lib/avatarMotionIsolation.integration.test.ts) 會在手腕、手指與表情資料大幅改變前後比較同一份身體 pose，要求分數完全相同。未來若新增視線、頭部或更細手勢，也必須維持這個 display-only 邊界，除非產品需求明確改變並另行設計評分規則。
 
 ### 平滑
 
@@ -188,10 +207,11 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 
 - 以 Three.js／VRM Humanoid normalized bones 驅動左右上臂、前臂、大腿、小腿與腳掌。
 - 依模型實際 rest palm basis 驅動左右 Hand bone，不硬寫左右手旋轉正負。
+- 依 MediaPipe 三段有號 thumb segment 與 VRM 實際拇指父子鏈逐節解算，不用掌心吸附猜測拇指方向。
 - 使用明確的骨骼父子鏈取得 rest direction，不依賴不穩定的 `children[0]`。
 - MediaPipe 到 VRM 的方向轉換保留解剖學 X 左右，反轉 Y 與 Z。
 - 先估算軀幹側傾，再解算四肢，降低父骨骼更新後把手腳帶歪的情況。
-- world landmarks 不完整時，預覽可退回 normalized landmarks。
+- 身體 world landmarks 不完整時，軀幹與四肢預覽可退回 normalized landmarks；手腕與拇指需要有效的 Hand world landmarks，不使用 ROI normalized z 猜深度。
 
 鏡像是兩個不同概念：
 
@@ -213,10 +233,11 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 │  └─ models/                    Pose／Hand／Face task 與 VRM
 ├─ src/
 │  ├─ components/
-│  │  ├─ SkeletonOverlay.tsx     鏡像攝影機上的低干擾骨架
+│  │  ├─ SkeletonOverlay.tsx     鏡像攝影機上的身體／雙手／臉部 overlay
 │  │  └─ VrmPreview.tsx          VRM 載入、取景、燈光與 retarget
 │  ├─ lib/
 │  │  ├─ avatarMotion.ts         手指角度、左右與表情純轉換
+│  │  ├─ avatarMotionStabilizer.ts 21 點手部世界座標時序穩定
 │  │  ├─ avatarMotionTracker.ts  顯示追蹤 Worker 協調
 │  │  ├─ audio.ts                Web Audio 合成音效
 │  │  ├─ config.ts               JSON 載入、完整驗證、門檻解析
@@ -226,7 +247,9 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 │  │  ├─ poseEvaluator.ts        純姿勢評分器
 │  │  ├─ poseSmoother.ts         EMA 時序平滑
 │  │  ├─ poseTracker.ts          Camera／Worker 協調
-│  │  └─ vrmRetarget.ts          MediaPipe 到 VRM 方向轉換
+│  │  ├─ thumbRetarget.ts        三段有號拇指 parent-local 解算
+│  │  ├─ vrmRetarget.ts          MediaPipe 到 VRM 方向轉換
+│  │  └─ wristRetarget.ts        完整掌面 quaternion 速度 follower
 │  ├─ workers/
 │  │  ├─ avatar.worker.ts        Hand／Face Landmarker 與手腕 ROI
 │  │  └─ pose.worker.ts          Pose Landmarker 初始化與推論
@@ -250,7 +273,7 @@ poses[current].scoreThreshold ?? poseDetection.scoreThreshold
 - `DetectedPose`：normalized `landmarks` 與 `worldLandmarks`
 - `PoseFrame`：時間、0–2 個 pose、推論耗時
 - `DetectedHand`：解剖學左右、21 點、信心值與更新時間
-- `FaceMotion`：Face Landmarker blendshape 名稱到分數的映射
+- `FaceMotion`：Face Landmarker blendshape 名稱到分數的映射，以及供 display-only overlay 使用的 normalized 臉部 landmarks
 - `AvatarMotionFrame`：顯示專用雙手／臉部資料與推論耗時；與 `PoseFrame` 分離
 - `PoseConstraint`：三種判定規則的 discriminated union
 - `PoseDefinition`：單一關卡內容、門檻與規則
@@ -306,9 +329,9 @@ Vitest 使用 Node 環境，測試檔位於 `src/**/*.test.ts`。
 | 狀態機 | 倒數、過關、跳過失去排名資格與重新開始 |
 | 排行榜 | 名稱清理、同名最快、排序、前十、損壞資料 |
 | VRM 轉換 | 左右手腳不交叉、腳鏈、可見度與鏡像不交換骨骼 |
-| 手指／表情 | 關節彎曲、左右面板、彎曲軸、blendshape 映射、嘴型正規化與時序平滑 |
+| 手腕／手指／表情 | 完整 palm quaternion、最短路徑、速度 follower、持續 180° 到達、張指、三段有號拇指 parent-local 解算、關節彎曲、左右面板、blendshape 與時序平滑 |
 | 評分隔離 | 改變手指／臉部資料後，身體姿勢分數保持完全相同 |
-| Overlay | `object-fit: cover`、鏡像與不同長寬比 |
+| Overlay | 身體、21 點雙手、臉部輪廓／高畫質密點、`object-fit: cover`、鏡像與不同長寬比 |
 
 Node 測試無法代替：
 
@@ -358,14 +381,19 @@ http://localhost:5173/?avatarDebug=1
 http://localhost:4173/?avatarDebug=1
 ```
 
-此模式由 `App` 合成循環的左右手彎指、眨眼、張嘴與微笑 `AvatarMotionFrame`，方便在沒有可靠手／臉輸入時確認：
+此模式由 `App` 合成循環的左右手彎指、眨眼、張嘴與微笑 `AvatarMotionFrame`。只要 VRM 載入成功且沒有 VRM 錯誤，`readyToStart` 便允許按「開始冒險」；即使攝影機拒絕、未連接或尚未取得完整身體，也能進入倒數與闖關頁，方便在沒有可靠影像輸入時確認：
 
 - VRM 是否具有標準左右手指骨，且手指朝掌心彎曲。
+- 手腕完整翻掌、四指張合，以及拇指三節屈曲／對掌方向是否合理且沒有突然翻轉或跑到手背。
 - 左右手沒有交叉套用。
+- 主要 VRM、右下角小攝影機、姿勢卡、提示與保持光環的桌機／窄螢幕版面是否互相遮擋。
+- 有攝影機影像時，小攝影機的雙手 overlay 是否與鏡像影像一致。
 - 模型是否提供左右／共用眨眼、張嘴 `aa` 與 `happy` expression preset。
 - 循環彎指與表情平滑沒有產生跳動。
 
-它刻意不模擬 Hand／Face Landmarker、手腕 ROI、攝影機解析度或效能，也不關閉 Pose Tracker。正式驗收必須移除 query parameter，再以真人逐側張手／握拳、眨單眼、張嘴與微笑；同時確認 `?poseDebug=1` 的分數不會因上述臉手動作改變。
+這只是顯示驗收用的 ready 條件例外，不是無攝影機遊戲模式。它刻意不模擬身體 `PoseFrame`、Hand／Face Landmarker、手腕 ROI、攝影機解析度或效能，也不關閉或改寫 Pose Tracker；若攝影機可用，原本的身體追蹤仍照常執行。沒有真人 `PoseFrame` 時，姿勢不會因此通過，且不能用此模式驗證分數、保持進度、身體／影片 overlay 對位或完整闖關流程。
+
+正式驗收必須移除 query parameter，再以真人完成全身姿勢、逐側張手／握拳、眨單眼、張嘴與微笑；同時確認 `?poseDebug=1` 的分數不會因上述臉手動作改變。不要把 `avatarDebugReady` 併入一般 ready 條件，也不要把合成 `AvatarMotionFrame` 接進 `evaluatePose` 或 `HoldTracker`。
 
 ## 新功能設計原則
 

@@ -44,9 +44,14 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
 
 function avatarDebugFrame(timestampMs: number): AvatarMotionFrame {
   const flexion = ((Math.sin(timestampMs / 850) + 1) / 2) * 1.2;
+  const fistAmount = Math.min(1, flexion / 1.2);
+  const spreadPulse = (Math.sin(timestampMs / 1_350) + 1) / 2;
   const debugHand = (side: "left" | "right") => {
     const sideSign = side === "left" ? 1 : -1;
-    const roll = Math.sin(timestampMs / 1_150) * 0.82 * sideSign;
+    // Exercise almost the complete palm-front ↔ palm-back range so the
+    // acceptance page catches wrist amplitude caps and ±180° seam flips.
+    const roll =
+      Math.sin(timestampMs / 1_650) * Math.PI * 0.98 * sideSign;
     const pitch = Math.sin(timestampMs / 1_730) * 0.28;
     const rotate = (x: number, y: number, z: number) => {
       const rollX = x * Math.cos(roll) + z * Math.sin(roll);
@@ -62,23 +67,67 @@ function avatarDebugFrame(timestampMs: number): AvatarMotionFrame {
     const landmarks = Array.from({ length: 21 }, () => rotate(0, 0, 0));
     landmarks[0] = rotate(0, 0, 0);
 
+    const openThumb = [
+      [-0.45, 0.25, 0],
+      [-0.7, 0.38, 0],
+      [-0.86, 0.55, 0],
+      [-0.95, 0.72, 0],
+    ] as const;
+    const closedThumb = [
+      [-0.38, 0.35, 0.05],
+      [-0.28, 0.58, 0.12],
+      [-0.05, 0.72, 0.18],
+      [0.12, 0.8, 0.15],
+    ] as const;
+    [1, 2, 3, 4].forEach((index, thumbIndex) => {
+      const open = openThumb[thumbIndex];
+      const closed = closedThumb[thumbIndex];
+      landmarks[index] = rotate(
+        (open[0] + (closed[0] - open[0]) * fistAmount) * sideSign,
+        open[1] + (closed[1] - open[1]) * fistAmount,
+        open[2] + (closed[2] - open[2]) * fistAmount,
+      );
+    });
+
     const fingerChains = [
-      { indices: [1, 2, 3, 4], x: -0.68, length: 0.3 },
-      { indices: [5, 6, 7, 8], x: -0.45, length: 0.38 },
-      { indices: [9, 10, 11, 12], x: -0.15, length: 0.42 },
-      { indices: [13, 14, 15, 16], x: 0.17, length: 0.39 },
-      { indices: [17, 18, 19, 20], x: 0.47, length: 0.34 },
+      {
+        indices: [5, 6, 7, 8],
+        x: -0.45,
+        length: 0.38,
+        spread: -0.34,
+      },
+      {
+        indices: [9, 10, 11, 12],
+        x: -0.15,
+        length: 0.42,
+        spread: 0.18,
+      },
+      {
+        indices: [13, 14, 15, 16],
+        x: 0.17,
+        length: 0.39,
+        spread: 0.08,
+      },
+      {
+        indices: [17, 18, 19, 20],
+        x: 0.47,
+        length: 0.34,
+        spread: 0.16,
+      },
     ];
-    for (const { indices, x, length } of fingerChains) {
-      let y = indices[0] === 1 ? 0.48 : 0.76;
+    for (const { indices, x, length, spread } of fingerChains) {
+      let currentX = x;
+      let y = 0.76;
       let z = 0;
       indices.forEach((index, segmentIndex) => {
         if (segmentIndex > 0) {
           const angle = flexion * segmentIndex * 0.75;
+          currentX +=
+            Math.sin(spread * spreadPulse * (1 - fistAmount)) * length;
           y += Math.cos(angle) * length;
           z += Math.sin(angle) * length;
         }
-        landmarks[index] = rotate(x * sideSign, y, z);
+        landmarks[index] = rotate(currentX * sideSign, y, z);
       });
     }
     return landmarks;
@@ -90,11 +139,17 @@ function avatarDebugFrame(timestampMs: number): AvatarMotionFrame {
     timestampMs,
     inferenceMs: 0,
     hands: (["left", "right"] as const).map((side) => {
-      const landmarks = debugHand(side);
+      const worldLandmarks = debugHand(side);
+      const screenCenterX = side === "left" ? 0.3 : 0.7;
       return {
         side,
-        landmarks: landmarks.map((point) => ({ ...point })),
-        worldLandmarks: landmarks.map((point) => ({ ...point })),
+        landmarks: worldLandmarks.map((point) => ({
+          ...point,
+          x: screenCenterX + point.x * 0.08,
+          y: 0.72 - point.y * 0.12,
+          z: point.z * 0.08,
+        })),
+        worldLandmarks: worldLandmarks.map((point) => ({ ...point })),
         confidence: 1,
         updatedAtMs: timestampMs,
       };
@@ -327,12 +382,15 @@ export function App() {
     detectedPose,
     phase === "playing" ? poseScore : null,
   );
+  const avatarDebugReady =
+    avatarDebugEnabled && vrmReady && !vrmError;
   const readyToStart =
-    trackingStatus === "ready" &&
-    isFullBodyReady(detectedPose) &&
-    vrmReady &&
-    !cameraError &&
-    !vrmError;
+    avatarDebugReady ||
+    (trackingStatus === "ready" &&
+      isFullBodyReady(detectedPose) &&
+      vrmReady &&
+      !cameraError &&
+      !vrmError);
   const showSkip =
     phase === "playing" && elapsedMs - poseStartElapsedRef.current >= 8000;
   const lowMotion = reducedMotion || quality === "low";
@@ -735,6 +793,11 @@ export function App() {
         : phase === "transition"
           ? "transition"
           : phase;
+  const inGame =
+    phase === "playing" ||
+    phase === "countdown" ||
+    phase === "transition";
+  const inAdventure = phase === "ready" || inGame;
 
   return (
     <div className={`app-shell phase-${phase} quality-${quality}`}>
@@ -794,120 +857,79 @@ export function App() {
         </main>
       )}
 
-      {phase === "ready" && config && (
-        <main className="screen ready-screen">
-          <section className="hero-copy">
-            <div className="eyebrow">✦ 今日的勇氣任務</div>
-            <h1 className="hero-title">
-              魔法花園
-              <span>瑜珈闖關</span>
-            </h1>
-            <p className="hero-subtitle">{config.subtitle}</p>
-            <div className="quest-meta">
-              <span className="meta-chip">
-                <b>{config.poses.length}</b> 個姿勢
-              </span>
-              <span className="meta-chip">
-                每式保持 <b>{config.timing.defaultHoldSeconds}</b> 秒
-              </span>
-              <span className="meta-chip">影像只在本機處理</span>
-            </div>
-            <div className="readiness-card" data-ready={readyToStart}>
-              <span className="readiness-card__light" />
-              <div>
-                <strong>
-                  {cameraError || vrmError || tracking.title}
-                </strong>
-                <small>
-                  {cameraError
-                    ? "允許攝影機權限後按「重試攝影機」。"
-                    : vrmError
-                      ? "請檢查 game.json 中的 VRM 路徑。"
-                      : tracking.detail}
-                </small>
+      {inAdventure && config && (phase === "ready" || activePose) && (
+        <main
+          className={`screen ${
+            phase === "ready" ? "ready-screen" : "game-screen"
+          }`}
+        >
+          {phase === "ready" ? (
+            <section className="hero-copy" key="ready-copy">
+              <div className="eyebrow">✦ 今日的勇氣任務</div>
+              <h1 className="hero-title">
+                魔法花園
+                <span>瑜珈闖關</span>
+              </h1>
+              <p className="hero-subtitle">{config.subtitle}</p>
+              <div className="quest-meta">
+                <span className="meta-chip">
+                  <b>{config.poses.length}</b> 個姿勢
+                </span>
+                <span className="meta-chip">
+                  每式保持 <b>{config.timing.defaultHoldSeconds}</b> 秒
+                </span>
+                <span className="meta-chip">影像只在本機處理</span>
               </div>
-            </div>
-            {cameraError ? (
-              <button className="primary-button" type="button" onClick={retryCamera}>
-                ↻ 重試攝影機
-              </button>
-            ) : (
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!readyToStart}
-                onClick={startGame}
-              >
-                開始冒險 <span aria-hidden="true">→</span>
-              </button>
-            )}
-            <p className="privacy-note">
-              請保留約兩公尺距離，確保頭頂、雙手與雙腳都在畫面中。遊戲不錄影，也不會上傳攝影機內容。
-            </p>
-            {avatarWarning && (
-              <p className="avatar-tracking-warning" role="status">
-                手指／表情同步暫時無法使用：{avatarWarning}
-                <br />
-                身體姿勢判定與闖關不受影響。
+              <div className="readiness-card" data-ready={readyToStart}>
+                <span className="readiness-card__light" />
+                <div>
+                  <strong>
+                    {avatarDebugReady
+                      ? "VRM 顯示驗收模式"
+                      : cameraError || vrmError || tracking.title}
+                  </strong>
+                  <small>
+                    {avatarDebugReady
+                      ? "可直接開始冒險，檢查主模型與攝影機小視窗版面；合成的手部與臉部資料不會加入瑜珈評分。"
+                      : cameraError
+                      ? "允許攝影機權限後按「重試攝影機」。"
+                      : vrmError
+                        ? "請檢查 game.json 中的 VRM 路徑。"
+                        : tracking.detail}
+                  </small>
+                </div>
+              </div>
+              {cameraError && !avatarDebugReady ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={retryCamera}
+                >
+                  ↻ 重試攝影機
+                </button>
+              ) : (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!readyToStart}
+                  onClick={startGame}
+                >
+                  開始冒險 <span aria-hidden="true">→</span>
+                </button>
+              )}
+              <p className="privacy-note">
+                請保留約兩公尺距離，確保頭頂、雙手與雙腳都在畫面中。遊戲不錄影，也不會上傳攝影機內容。
               </p>
-            )}
-          </section>
-
-          <section
-            className="portal-card"
-            data-hand-tracking={
-              avatarCapabilities === null
-                ? "loading"
-                : avatarCapabilities.hands
-                  ? "ready"
-                  : "unavailable"
-            }
-            data-face-tracking={
-              avatarCapabilities === null
-                ? "loading"
-                : avatarCapabilities.face
-                  ? "ready"
-                  : "unavailable"
-            }
-            data-avatar-progress={avatarProgress}
-          >
-            <div className="portal-label">
-              <i /> 你的魔法動作夥伴
-            </div>
-            <VrmPreview
-              modelPath={resolvePublicAssetPath(config.avatar.modelPath)}
-              modelScale={config.avatar.scale}
-              cameraDistance={config.avatar.cameraDistance}
-              mirrored={config.avatar.mirrored}
-              pose={detectedPose}
-              avatarMotion={avatarMotion}
-              motionSmoothing={config.avatarTracking.smoothing}
-              motionLostHoldMs={config.avatarTracking.lostHoldMs}
-              motionRelaxMs={config.avatarTracking.relaxMs}
-              wristRotationEnabled={
-                config.avatarTracking.hands.wristRotationEnabled
-              }
-              wristRotationInfluence={
-                config.avatarTracking.hands.wristRotationInfluence
-              }
-              wristMaxAngleDegrees={
-                config.avatarTracking.hands.wristMaxAngleDegrees
-              }
-              reducedMotion={lowMotion}
-              onReady={handleVrmReady}
-              onError={handleVrmError}
-            />
-          </section>
-        </main>
-      )}
-
-      {(phase === "playing" ||
-        phase === "countdown" ||
-        phase === "transition") &&
-        config &&
-        activePose && (
-          <main className="screen game-screen">
-            <section className="game-screen__left">
+              {avatarWarning && (
+                <p className="avatar-tracking-warning" role="status">
+                  手指／表情同步暫時無法使用：{avatarWarning}
+                  <br />
+                  身體姿勢判定與闖關不受影響。
+                </p>
+              )}
+            </section>
+          ) : activePose ? (
+            <section className="game-screen__left" key="game-panel">
               <div className="game-hud">
                 <div className="level-progress" aria-label="關卡進度">
                   {config.poses.map((pose, index) => (
@@ -991,14 +1013,21 @@ export function App() {
               <div className="hold-panel">
                 <div className="progress-ring">
                   <svg viewBox="0 0 72 72" aria-hidden="true">
-                    <circle className="progress-ring__track" cx="36" cy="36" r="30" />
+                    <circle
+                      className="progress-ring__track"
+                      cx="36"
+                      cy="36"
+                      r="30"
+                    />
                     <circle
                       className="progress-ring__value"
                       cx="36"
                       cy="36"
                       r="30"
                       strokeDasharray={RING_CIRCUMFERENCE}
-                      strokeDashoffset={RING_CIRCUMFERENCE * (1 - holdProgress)}
+                      strokeDashoffset={
+                        RING_CIRCUMFERENCE * (1 - holdProgress)
+                      }
                     />
                   </svg>
                   <span className="progress-ring__label">
@@ -1007,11 +1036,15 @@ export function App() {
                 </div>
                 <div className="hold-panel__copy">
                   <strong>
-                    {poseScore?.passing ? "很好，保持住！" : "模仿姿勢來充能"}
+                    {poseScore?.passing
+                      ? "很好，保持住！"
+                      : "模仿姿勢來充能"}
                   </strong>
                   <span>
                     正確度 {Math.round(poseScore?.score ?? 0)} 分・保持{" "}
-                    {activePose.holdSeconds ?? config.timing.defaultHoldSeconds} 秒
+                    {activePose.holdSeconds ??
+                      config.timing.defaultHoldSeconds}{" "}
+                    秒
                   </span>
                 </div>
               </div>
@@ -1028,9 +1061,59 @@ export function App() {
                 )}
               </div>
             </section>
-            <div className="game-screen__right-spacer" aria-hidden="true" />
-          </main>
-        )}
+          ) : null}
+
+          <section
+            key="avatar-stage"
+            className={`portal-card portal-card--${cameraPhase}`}
+            data-hand-tracking={
+              avatarCapabilities === null
+                ? "loading"
+                : avatarCapabilities.hands
+                  ? "ready"
+                  : "unavailable"
+            }
+            data-face-tracking={
+              avatarCapabilities === null
+                ? "loading"
+                : avatarCapabilities.face
+                  ? "ready"
+                  : "unavailable"
+            }
+            data-avatar-progress={avatarProgress}
+          >
+            <div className="portal-label">
+              <i />{" "}
+              {phase === "ready"
+                ? "你的魔法動作夥伴"
+                : "跟著魔法夥伴一起伸展"}
+            </div>
+            <VrmPreview
+              modelPath={resolvePublicAssetPath(config.avatar.modelPath)}
+              modelScale={config.avatar.scale}
+              cameraDistance={config.avatar.cameraDistance}
+              mirrored={config.avatar.mirrored}
+              pose={detectedPose}
+              avatarMotion={avatarMotion}
+              motionSmoothing={config.avatarTracking.smoothing}
+              motionLostHoldMs={config.avatarTracking.lostHoldMs}
+              motionRelaxMs={config.avatarTracking.relaxMs}
+              wristRotationEnabled={
+                config.avatarTracking.hands.wristRotationEnabled
+              }
+              fingerSpreadInfluence={
+                config.avatarTracking.hands.fingerSpreadInfluence
+              }
+              fingerSpreadMaxDegrees={
+                config.avatarTracking.hands.fingerSpreadMaxDegrees
+              }
+              reducedMotion={lowMotion}
+              onReady={handleVrmReady}
+              onError={handleVrmError}
+            />
+          </section>
+        </main>
+      )}
 
       {phase === "countdown" && (
         <div className="countdown-overlay" aria-live="assertive">
@@ -1138,8 +1221,10 @@ export function App() {
         <div className="camera-panel__shade" />
         <SkeletonOverlay
           pose={detectedPose}
+          avatarMotion={avatarMotion}
           passing={Boolean(poseScore?.passing)}
           active={phase !== "boot" && phase !== "error" && phase !== "complete"}
+          detailed={quality === "high"}
           videoRef={videoRef}
         />
         <div className="camera-panel__corners" />

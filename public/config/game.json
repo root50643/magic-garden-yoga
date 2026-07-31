@@ -37,8 +37,8 @@
       "roiScale": 1.6,
       "handednessSwap": false,
       "wristRotationEnabled": true,
-      "wristRotationInfluence": 0.85,
-      "wristMaxAngleDegrees": 105,
+      "fingerSpreadInfluence": 1,
+      "fingerSpreadMaxDegrees": 28,
       "minDetectionConfidence": 0.5,
       "minPresenceConfidence": 0.5,
       "minTrackingConfidence": 0.5

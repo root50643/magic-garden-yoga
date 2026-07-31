@@ -172,6 +172,33 @@ export interface PalmBasis {
   normal: MotionVector;
 }
 
+export type NonThumbFingerName = "index" | "middle" | "ring" | "little";
+
+/**
+ * Signed abduction angles in radians, measured in the palm plane. Negative
+ * points toward the index-finger edge and positive toward the little-finger
+ * edge, regardless of which hand is tracked.
+ */
+export type FingerSpreadTargets = Record<NonThumbFingerName, number>;
+
+export interface ThumbArticulationTarget {
+  /**
+   * Thumb-tip position relative to the palm center, expressed in palm-width
+   * units. x is index-to-little, y is wrist-to-fingers, and z is palm-normal.
+   */
+  target: MotionVector;
+  /** Thumb folded into a fist. Pinching alone deliberately stays low. */
+  closure: number;
+  /** Thumb moving across the palm or opposing the index fingertip. */
+  opposition: number;
+}
+
+export interface HandArticulationTargets {
+  curls: FingerCurlTargets;
+  spreads: FingerSpreadTargets;
+  thumb: ThumbArticulationTarget;
+}
+
 export type VrmFaceExpressionName =
   | "aa"
   | "ih"
@@ -188,6 +215,25 @@ export type FaceExpressionTargets = Record<VrmFaceExpressionName, number>;
 const ZERO_CURLS = Object.fromEntries(
   FINGER_JOINT_DEFINITIONS.map(({ name }) => [name, 0]),
 ) as FingerCurlTargets;
+
+const ZERO_SPREADS: FingerSpreadTargets = {
+  index: 0,
+  middle: 0,
+  ring: 0,
+  little: 0,
+};
+
+const FINGER_SPREAD_CHAINS = [
+  ["index", 5, 6, "indexProximal"],
+  ["middle", 9, 10, "middleProximal"],
+  ["ring", 13, 14, "ringProximal"],
+  ["little", 17, 18, "littleProximal"],
+] as const satisfies readonly [
+  NonThumbFingerName,
+  number,
+  number,
+  FingerJointName,
+][];
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -209,6 +255,10 @@ function subtract(a: MotionVector, b: MotionVector): MotionVector {
 
 function dot(a: MotionVector, b: MotionVector): number {
   return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function distance(a: MotionVector, b: MotionVector): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function cross(a: MotionVector, b: MotionVector): MotionVector {
@@ -339,22 +389,301 @@ export function calculateJointCurl(
   return Math.min(Math.max(0, maximumCurl), Math.max(0, flexion));
 }
 
+function curlDeadZone(name: FingerJointName): number {
+  if (name.startsWith("thumb")) return 0.18;
+  if (name.endsWith("Proximal")) return 0.14;
+  return 0.1;
+}
+
+/**
+ * Removes the small residual bend caused by landmark noise while preserving
+ * the complete [0, maximumCurl] range for an intentional bend.
+ */
+function applyCurlDeadZone(
+  flexion: number,
+  maximumCurl: number,
+  deadZone: number,
+): number {
+  const maximum = Math.max(0, maximumCurl);
+  if (
+    !Number.isFinite(flexion) ||
+    !Number.isFinite(deadZone) ||
+    flexion <= deadZone ||
+    maximum <= deadZone
+  ) {
+    return 0;
+  }
+  return maximum * clamp01((flexion - deadZone) / (maximum - deadZone));
+}
+
+/**
+ * MCP abduction must not be mistaken for finger curl. Measure the proximal
+ * segment in the palm's longitudinal/normal plane and deliberately discard
+ * its lateral component; finger spread is emitted as a separate signal.
+ */
+function calculatePalmReferencedProximalCurl(
+  mcp: Landmark | null | undefined,
+  pip: Landmark | null | undefined,
+  basis: PalmBasis,
+  maximumCurl: number,
+): number {
+  if (!finitePoint(mcp) || !finitePoint(pip)) return 0;
+  const segment = subtract(pip, mcp);
+  const segmentLength = Math.hypot(segment.x, segment.y, segment.z);
+  if (!Number.isFinite(segmentLength) || segmentLength <= 1e-6) return 0;
+
+  const longitudinal = dot(segment, basis.longitudinal);
+  const normal = dot(segment, basis.normal);
+  const sagittalLength = Math.hypot(longitudinal, normal);
+  // A nearly lateral segment does not contain enough information to infer a
+  // stable curl angle, so leave it neutral instead of amplifying noise.
+  if (sagittalLength / segmentLength < 0.08) return 0;
+
+  const cosine = Math.min(
+    1,
+    Math.max(-1, longitudinal / sagittalLength),
+  );
+  return Math.min(Math.max(0, maximumCurl), Math.acos(cosine));
+}
+
 export function calculateFingerCurls(
   landmarks: readonly Landmark[],
 ): FingerCurlTargets {
   if (landmarks.length < 21) return { ...ZERO_CURLS };
+  const palmBasis = calculatePalmBasis(landmarks);
 
   return Object.fromEntries(
-    FINGER_JOINT_DEFINITIONS.map(({ name, points, maximumCurl }) => [
-      name,
-      calculateJointCurl(
-        landmarks[points[0]],
-        landmarks[points[1]],
-        landmarks[points[2]],
-        maximumCurl,
-      ),
-    ]),
+    FINGER_JOINT_DEFINITIONS.map(({ name, points, maximumCurl }) => {
+      const flexion =
+        palmBasis && !name.startsWith("thumb") && name.endsWith("Proximal")
+          ? calculatePalmReferencedProximalCurl(
+              landmarks[points[1]],
+              landmarks[points[2]],
+              palmBasis,
+              maximumCurl,
+            )
+          : calculateJointCurl(
+              landmarks[points[0]],
+              landmarks[points[1]],
+              landmarks[points[2]],
+              maximumCurl,
+            );
+      return [
+        name,
+        applyCurlDeadZone(
+          flexion,
+          maximumCurl,
+          curlDeadZone(name),
+        ),
+      ];
+    }),
   ) as FingerCurlTargets;
+}
+
+function neutralHandArticulation(): HandArticulationTargets {
+  return {
+    curls: { ...ZERO_CURLS },
+    spreads: { ...ZERO_SPREADS },
+    thumb: {
+      target: { x: 0, y: 0, z: 0 },
+      closure: 0,
+      opposition: 0,
+    },
+  };
+}
+
+function inverseRemap(value: number, fullAt: number, zeroAt: number): number {
+  if (!Number.isFinite(value) || zeroAt <= fullAt) return 0;
+  return clamp01((zeroAt - value) / (zeroAt - fullAt));
+}
+
+function boundedPalmCoordinate(
+  value: number,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Derives articulation signals that joint bend angles cannot represent:
+ * finger abduction and the thumb's position across the palm.
+ *
+ * Use world landmarks when available. Because every direction and distance is
+ * measured in a frame built from the same hand, results are invariant to
+ * translation, proper 3D rotation, uniform scale, and anatomical left/right
+ * reflection. A bad palm frame returns neutral finite targets.
+ */
+export function calculateHandArticulation(
+  landmarks: readonly Landmark[],
+  side: HandSide = "right",
+): HandArticulationTargets {
+  if (landmarks.length < 21) return neutralHandArticulation();
+  const basis = calculatePalmBasis(landmarks);
+  if (!basis) return neutralHandArticulation();
+
+  const wrist = landmarks[0];
+  const indexMcp = landmarks[5];
+  const middleMcp = landmarks[9];
+  const ringMcp = landmarks[13];
+  const littleMcp = landmarks[17];
+  if (
+    !finitePoint(wrist) ||
+    !finitePoint(indexMcp) ||
+    !finitePoint(middleMcp) ||
+    !finitePoint(ringMcp) ||
+    !finitePoint(littleMcp)
+  ) {
+    return neutralHandArticulation();
+  }
+
+  const palmWidth = distance(indexMcp, littleMcp);
+  if (!Number.isFinite(palmWidth) || palmWidth <= 1e-5) {
+    return neutralHandArticulation();
+  }
+
+  const curls = calculateFingerCurls(landmarks);
+  const spreads = { ...ZERO_SPREADS };
+  for (const [name, mcpIndex, pipIndex, proximalName] of FINGER_SPREAD_CHAINS) {
+    const mcp = landmarks[mcpIndex];
+    const pip = landmarks[pipIndex];
+    if (!finitePoint(mcp) || !finitePoint(pip)) continue;
+    const segment = subtract(pip, mcp);
+    const segmentLength = Math.hypot(segment.x, segment.y, segment.z);
+    const lateral = dot(segment, basis.lateral);
+    const longitudinal = dot(segment, basis.longitudinal);
+    const planarLength = Math.hypot(lateral, longitudinal);
+    if (
+      !Number.isFinite(segmentLength) ||
+      segmentLength <= 1e-6 ||
+      planarLength / segmentLength < 0.15
+    ) {
+      continue;
+    }
+
+    // Abduction becomes poorly constrained after a finger folds out of the
+    // palm plane. Fade it with proximal flexion to avoid fist jitter.
+    const extensionWeight = 1 - clamp01(curls[proximalName] / 1.2);
+    spreads[name] =
+      Math.min(0.9, Math.max(-0.9, Math.atan2(lateral, longitudinal))) *
+      extensionWeight;
+  }
+
+  const thumbTip = landmarks[4];
+  const indexTip = landmarks[8];
+  if (!finitePoint(thumbTip)) {
+    return {
+      curls,
+      spreads,
+      thumb: neutralHandArticulation().thumb,
+    };
+  }
+
+  const palmCenter = {
+    x: (indexMcp.x + middleMcp.x + ringMcp.x + littleMcp.x) / 4,
+    y: (indexMcp.y + middleMcp.y + ringMcp.y + littleMcp.y) / 4,
+    z: (indexMcp.z + middleMcp.z + ringMcp.z + littleMcp.z) / 4,
+  };
+  const thumbOffset = subtract(thumbTip, palmCenter);
+  const target = {
+    x: boundedPalmCoordinate(
+      dot(thumbOffset, basis.lateral) / palmWidth,
+      -1.6,
+      0.65,
+    ),
+    y: boundedPalmCoordinate(
+      dot(thumbOffset, basis.longitudinal) / palmWidth,
+      -0.55,
+      1.55,
+    ),
+    // cross(longitudinal, index-to-little) has opposite anatomical parity for
+    // left and right hands. Correct it so z means the same thing on both.
+    z: boundedPalmCoordinate(
+      (dot(thumbOffset, basis.normal) / palmWidth) *
+        (side === "left" ? -1 : 1),
+      -0.8,
+      0.8,
+    ),
+  };
+
+  const palmDistance = distance(thumbTip, palmCenter) / palmWidth;
+  const mcpDistance =
+    Math.min(
+      distance(thumbTip, middleMcp),
+      distance(thumbTip, ringMcp),
+    ) / palmWidth;
+  const palmProximity = inverseRemap(
+    Math.min(palmDistance, mcpDistance),
+    0.28,
+    1.05,
+  );
+
+  const fingerClosure = [
+    average(
+      curls.indexProximal / 1.45,
+      curls.indexIntermediate / 1.7,
+      curls.indexDistal / 1.35,
+    ),
+    average(
+      curls.middleProximal / 1.45,
+      curls.middleIntermediate / 1.7,
+      curls.middleDistal / 1.35,
+    ),
+    average(
+      curls.ringProximal / 1.45,
+      curls.ringIntermediate / 1.7,
+      curls.ringDistal / 1.35,
+    ),
+    average(
+      curls.littleProximal / 1.45,
+      curls.littleIntermediate / 1.7,
+      curls.littleDistal / 1.35,
+    ),
+  ];
+  const meanFingerClosure = average(...fingerClosure);
+  const leastFingerClosure = Math.min(...fingerClosure);
+  // A fist requires support from every finger. This prevents a victory sign,
+  // where only ring/little are folded, from driving the thumb to its extreme
+  // fist target.
+  const fistSignal =
+    remap(meanFingerClosure, 0.35, 0.78) *
+    remap(leastFingerClosure, 0.16, 0.58);
+  // Reserve full-looking closure for a real fist. A tucked thumb in a victory
+  // sign may still produce a small fold, but cannot reach the arm-crossing
+  // extremes that a binary proximity test produced.
+  const closure = Math.min(
+    0.78,
+    palmProximity * (0.08 + 0.7 * fistSignal),
+  );
+
+  const pinchDistance = finitePoint(indexTip)
+    ? distance(thumbTip, indexTip) / palmWidth
+    : Number.POSITIVE_INFINITY;
+  const pinchSignal = inverseRemap(pinchDistance, 0.08, 0.5);
+  const acrossPalm = remap(target.x, -0.82, -0.08);
+  const palmNear = inverseRemap(palmDistance, 0.32, 1.2);
+  // Pinching, tucking and making a fist are distinct motions. Opposition is
+  // intentionally bounded below a full quaternion slerp target: the raw VRM
+  // thumb rest axes vary significantly between models and extreme targets can
+  // otherwise intersect the wrist or forearm.
+  const opposition = Math.min(
+    0.72,
+    Math.max(
+      pinchSignal * 0.58,
+      acrossPalm * palmNear * (0.18 + 0.54 * fistSignal),
+    ),
+  );
+
+  return {
+    curls,
+    spreads,
+    thumb: {
+      target,
+      closure: clamp01(closure),
+      opposition: clamp01(opposition),
+    },
+  };
 }
 
 export function curlAxisFromRestDirection(

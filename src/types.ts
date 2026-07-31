@@ -67,6 +67,13 @@ export interface DetectedHand {
 
 export interface FaceMotion {
   blendshapes: Record<string, number>;
+  /**
+   * Normalized MediaPipe face landmarks in source-camera coordinates.
+   *
+   * Optional for backwards compatibility with saved/debug motion frames.
+   * These points are display-only and are never consumed by yoga scoring.
+   */
+  landmarks?: Landmark[];
   updatedAtMs: number;
 }
 
@@ -175,8 +182,8 @@ export interface GameConfig {
       roiScale: number;
       handednessSwap: boolean;
       wristRotationEnabled: boolean;
-      wristRotationInfluence: number;
-      wristMaxAngleDegrees: number;
+      fingerSpreadInfluence: number;
+      fingerSpreadMaxDegrees: number;
       minDetectionConfidence: number;
       minPresenceConfidence: number;
       minTrackingConfidence: number;

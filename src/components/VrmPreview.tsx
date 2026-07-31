@@ -28,20 +28,37 @@ import {
 } from "@pixiv/three-vrm";
 import {
   FINGER_JOINT_DEFINITIONS,
+  calculateHandArticulation,
   calculatePalmBasis,
   calculatePalmBasisFromPoints,
-  calculateFingerCurls,
   curlAxisFromRestDirection,
   faceBlendshapesToVrmExpressions,
   halfLifeAlpha,
   type FaceExpressionTargets,
   type FingerJointName,
+  type NonThumbFingerName,
+  type PalmBasis,
 } from "../lib/avatarMotion";
+import {
+  createHandLandmarkFilterState,
+  sourceFrameDeltaMs,
+  stabilizeHandWorldLandmarks,
+  stabilizeQuaternionTarget,
+  type HandLandmarkFilterState,
+} from "../lib/avatarMotionStabilizer";
+import {
+  solveBoneLocalFrame,
+  thumbSegmentInPalmSpace,
+  type ThumbJointName,
+} from "../lib/thumbRetarget";
 import { mediaPipeSegmentToVrmDirection } from "../lib/vrmRetarget";
 import {
+  createWristSolverState,
   palmBasisToQuaternion,
-  solveWristLocalQuaternion,
+  resetWristSolverState,
+  solveContinuousWristLocalQuaternion,
   type WristRestPose,
+  type WristSolverState,
 } from "../lib/wristRetarget";
 import type {
   AvatarMotionFrame,
@@ -61,8 +78,8 @@ interface VrmPreviewProps {
   motionLostHoldMs: number;
   motionRelaxMs: number;
   wristRotationEnabled: boolean;
-  wristRotationInfluence: number;
-  wristMaxAngleDegrees: number;
+  fingerSpreadInfluence: number;
+  fingerSpreadMaxDegrees: number;
   reducedMotion: boolean;
   onReady: () => void;
   onError: (message: string) => void;
@@ -86,11 +103,25 @@ interface FingerBinding {
   bone: Object3D;
   restLocalQuaternion: Quaternion;
   curlAxis: Vector3;
+  spreadName?: NonThumbFingerName;
+  restSpreadAngle?: number;
+  spreadAxis?: Vector3;
+  thumbSegmentAxisLocal?: Vector3;
+  thumbPalmNormalAxisLocal?: Vector3;
+  thumbPalmLongitudinalAxisLocal?: Vector3;
+  thumbPalmLocalDirection?: Vector3;
+  thumbPalmFromHandLocal?: Quaternion;
+  thumbHandBone?: Object3D;
+  stabilizedLocalQuaternion: Quaternion;
+  lastSourceTimestampMs: number | null;
 }
 
 interface WristBinding extends WristRestPose {
   side: HandSide;
   bone: Object3D;
+  solverState: WristSolverState;
+  stabilizedLocalQuaternion: Quaternion;
+  lastProcessedSourceTimestampMs: number | null;
 }
 
 type ExpressionName =
@@ -200,11 +231,69 @@ function makeBindings(vrm: VRM): SegmentBinding[] {
   });
 }
 
+const SPREAD_JOINTS: Partial<
+  Record<FingerJointName, NonThumbFingerName>
+> = {
+  indexProximal: "index",
+  middleProximal: "middle",
+  ringProximal: "ring",
+  littleProximal: "little",
+};
+
+function basisAxis(axis: PalmBasis[keyof PalmBasis]): Vector3 {
+  return new Vector3(axis.x, axis.y, axis.z).normalize();
+}
+
 function makeFingerBindings(vrm: VRM): FingerBinding[] {
   vrm.scene.updateMatrixWorld(true);
   const bindings: FingerBinding[] = [];
 
   for (const side of ["left", "right"] as const) {
+    const prefix = side === "left" ? "left" : "right";
+    const handBone = vrm.humanoid.getNormalizedBoneNode(
+      side === "left"
+        ? VRMHumanBoneName.LeftHand
+        : VRMHumanBoneName.RightHand,
+    );
+    const palmRoots = [
+      vrm.humanoid.getNormalizedBoneNode(
+        `${prefix}IndexProximal` as HumanBoneName,
+      ),
+      vrm.humanoid.getNormalizedBoneNode(
+        `${prefix}MiddleProximal` as HumanBoneName,
+      ),
+      vrm.humanoid.getNormalizedBoneNode(
+        `${prefix}RingProximal` as HumanBoneName,
+      ),
+      vrm.humanoid.getNormalizedBoneNode(
+        `${prefix}LittleProximal` as HumanBoneName,
+      ),
+    ];
+    const palmPositions = palmRoots.map((bone) =>
+      bone?.getWorldPosition(new Vector3()),
+    );
+    const palmBasis =
+      handBone && palmPositions.every((value) => value !== undefined)
+        ? calculatePalmBasisFromPoints(
+            handBone.getWorldPosition(new Vector3()),
+            palmPositions[0]!,
+            palmPositions[1]!,
+            palmPositions[2]!,
+            palmPositions[3]!,
+          )
+        : null;
+    const restPalmWorldQuaternion = palmBasis
+      ? palmBasisToQuaternion(palmBasis)
+      : null;
+    const thumbPalmFromHandLocal =
+      handBone && restPalmWorldQuaternion
+        ? handBone
+            .getWorldQuaternion(new Quaternion())
+            .invert()
+            .multiply(restPalmWorldQuaternion)
+            .normalize()
+        : undefined;
+
     for (const definition of FINGER_JOINT_DEFINITIONS) {
       const boneName =
         side === "left" ? definition.leftBone : definition.rightBone;
@@ -230,6 +319,20 @@ function makeFingerBindings(vrm: VRM): FingerBinding[] {
             .normalize();
         }
       }
+      if (!restDirection) {
+        const child = bone.children.find(
+          (candidate) =>
+            candidate
+              .getWorldPosition(new Vector3())
+              .distanceToSquared(bonePosition) > 0.00000001,
+        );
+        if (child) {
+          restDirection = child
+            .getWorldPosition(new Vector3())
+            .sub(bonePosition)
+            .normalize();
+        }
+      }
       if (!restDirection && bone.parent) {
         restDirection = bonePosition
           .clone()
@@ -238,7 +341,12 @@ function makeFingerBindings(vrm: VRM): FingerBinding[] {
       }
       if (!restDirection || restDirection.lengthSq() < 0.0001) continue;
 
-      const derivedAxis = curlAxisFromRestDirection(restDirection);
+      const isThumb = definition.name.startsWith("thumb");
+      const curlDirection = new Vector3(0, -1, 0);
+      const derivedAxis = curlAxisFromRestDirection(
+        restDirection,
+        curlDirection,
+      );
       const axisWorld = derivedAxis
         ? new Vector3(derivedAxis.x, derivedAxis.y, derivedAxis.z)
         : new Vector3(0, 0, side === "left" ? -1 : 1);
@@ -246,6 +354,38 @@ function makeFingerBindings(vrm: VRM): FingerBinding[] {
       const curlAxis = axisWorld
         .applyQuaternion(restWorldQuaternion.clone().invert())
         .normalize();
+      const spreadName = SPREAD_JOINTS[definition.name];
+      const spreadAxis =
+        spreadName && palmBasis
+          ? basisAxis(palmBasis.normal)
+              .applyQuaternion(restWorldQuaternion.clone().invert())
+              .normalize()
+          : undefined;
+      const restSpreadAngle =
+        spreadName && palmBasis
+          ? Math.atan2(
+              restDirection.dot(basisAxis(palmBasis.lateral)),
+              restDirection.dot(basisAxis(palmBasis.longitudinal)),
+            )
+          : undefined;
+      const thumbSegmentAxisLocal = isThumb
+        ? restDirection
+            .clone()
+            .applyQuaternion(restWorldQuaternion.clone().invert())
+            .normalize()
+        : undefined;
+      const thumbPalmNormalAxisLocal =
+        isThumb && palmBasis
+          ? basisAxis(palmBasis.normal)
+              .applyQuaternion(restWorldQuaternion.clone().invert())
+              .normalize()
+          : undefined;
+      const thumbPalmLongitudinalAxisLocal =
+        isThumb && palmBasis
+          ? basisAxis(palmBasis.longitudinal)
+              .applyQuaternion(restWorldQuaternion.clone().invert())
+              .normalize()
+          : undefined;
 
       bindings.push({
         side,
@@ -253,6 +393,17 @@ function makeFingerBindings(vrm: VRM): FingerBinding[] {
         bone,
         restLocalQuaternion: bone.quaternion.clone(),
         curlAxis,
+        spreadName,
+        restSpreadAngle,
+        spreadAxis,
+        thumbSegmentAxisLocal,
+        thumbPalmNormalAxisLocal,
+        thumbPalmLongitudinalAxisLocal,
+        thumbPalmFromHandLocal:
+          isThumb ? thumbPalmFromHandLocal : undefined,
+        thumbHandBone: isThumb ? handBone ?? undefined : undefined,
+        stabilizedLocalQuaternion: bone.quaternion.clone(),
+        lastSourceTimestampMs: null,
       });
     }
   }
@@ -300,40 +451,158 @@ function makeWristBindings(vrm: VRM): WristBinding[] {
       restLocalQuaternion: bone.quaternion.clone(),
       restWorldQuaternion: bone.getWorldQuaternion(new Quaternion()),
       restPalmWorldQuaternion: palmBasisToQuaternion(basis),
+      solverState: createWristSolverState(),
+      stabilizedLocalQuaternion: bone.quaternion.clone(),
+      lastProcessedSourceTimestampMs: null,
     });
   }
   return bindings;
 }
 
-function motionBlend(smoothing: number, deltaSeconds: number): number {
-  const perFrame = Math.min(1, Math.max(0.01, smoothing));
-  return 1 - (1 - perFrame) ** Math.max(0, deltaSeconds * 60);
+function motionBlend(
+  smoothing: number,
+  deltaSeconds: number,
+  slowHalfLifeMs: number,
+  fastHalfLifeMs: number,
+): number {
+  const responsiveness = MathUtils.clamp(smoothing, 0.01, 1);
+  const halfLifeMs = MathUtils.lerp(
+    slowHalfLifeMs,
+    fastHalfLifeMs,
+    responsiveness,
+  );
+  return halfLifeAlpha(Math.max(0, deltaSeconds), halfLifeMs / 1000);
 }
 
 function retargetFingers(
   bindings: FingerBinding[],
   motion: AvatarMotionFrame,
   blend: number,
+  spreadInfluence: number,
+  spreadMaxDegrees: number,
 ): Set<HandSide> {
   const trackedSides = new Set<HandSide>();
   for (const hand of motion.hands) {
-    const landmarks =
-      hand.worldLandmarks.length >= 21
-        ? hand.worldLandmarks
-        : hand.landmarks;
-    if (landmarks.length < 21) continue;
+    const landmarks = hand.worldLandmarks;
+    const palmBasis =
+      landmarks.length >= 21 ? calculatePalmBasis(landmarks) : null;
+    if (!palmBasis) continue;
     trackedSides.add(hand.side);
-    const curls = calculateFingerCurls(landmarks);
-    for (const binding of bindings) {
-      if (binding.side !== hand.side) continue;
-      const curlRotation = new Quaternion().setFromAxisAngle(
-        binding.curlAxis,
-        curls[binding.jointName],
+    const sideBindings = bindings.filter(
+      (binding) => binding.side === hand.side,
+    );
+    const isNewSourceFrame = sideBindings.some(
+      (binding) => binding.lastSourceTimestampMs !== hand.updatedAtMs,
+    );
+
+    if (isNewSourceFrame) {
+      const articulation = calculateHandArticulation(landmarks, hand.side);
+      const maximumSpread = MathUtils.degToRad(
+        Math.min(60, Math.max(0, spreadMaxDegrees)),
       );
-      const target = binding.restLocalQuaternion
-        .clone()
-        .multiply(curlRotation);
-      binding.bone.quaternion.slerp(target, blend);
+
+      for (const binding of sideBindings) {
+        let target = binding.restLocalQuaternion.clone();
+        const isThumb = binding.jointName.startsWith("thumb");
+        if (isThumb) {
+          const palmLocalDirection = thumbSegmentInPalmSpace(
+            landmarks,
+            palmBasis,
+            binding.jointName as ThumbJointName,
+          );
+          if (palmLocalDirection) {
+            binding.thumbPalmLocalDirection = palmLocalDirection;
+          }
+        } else if (
+          binding.spreadName &&
+          binding.spreadAxis &&
+          binding.restSpreadAngle !== undefined
+        ) {
+          const trackedSpread = articulation.spreads[binding.spreadName];
+          const spreadDelta = MathUtils.clamp(
+            (trackedSpread - binding.restSpreadAngle) *
+              Math.max(0, spreadInfluence),
+            -maximumSpread,
+            maximumSpread,
+          );
+          target.multiply(
+            new Quaternion().setFromAxisAngle(
+              binding.spreadAxis,
+              spreadDelta,
+            ),
+          );
+        }
+        if (!isThumb) {
+          const curlRotation = new Quaternion().setFromAxisAngle(
+            binding.curlAxis,
+            articulation.curls[binding.jointName],
+          );
+          target.multiply(curlRotation);
+          binding.stabilizedLocalQuaternion =
+            stabilizeQuaternionTarget(
+              binding.stabilizedLocalQuaternion,
+              target,
+              sourceFrameDeltaMs(
+                hand.updatedAtMs,
+                binding.lastSourceTimestampMs,
+              ),
+              {
+                deadZoneDegrees: binding.spreadName ? 0.45 : 0.3,
+                slowHalfLifeMs: binding.spreadName ? 145 : 120,
+                fastHalfLifeMs: 28,
+                fastMotionDegrees: binding.spreadName ? 20 : 24,
+              },
+            );
+        }
+        binding.lastSourceTimestampMs = hand.updatedAtMs;
+      }
+    }
+
+    // Thumb targets are re-solved every render against the parent pose that
+    // was actually drawn this frame. This prevents a child segment from
+    // compensating for a predicted parent rotation that has not arrived yet.
+    for (const binding of sideBindings) {
+      const isThumb = binding.jointName.startsWith("thumb");
+      if (
+        isThumb &&
+        binding.thumbPalmLocalDirection &&
+        binding.thumbSegmentAxisLocal &&
+        binding.thumbPalmNormalAxisLocal &&
+        binding.thumbPalmLongitudinalAxisLocal &&
+        binding.thumbPalmFromHandLocal &&
+        binding.thumbHandBone &&
+        binding.bone.parent
+      ) {
+        const currentPalmWorld = binding.thumbHandBone
+          .getWorldQuaternion(new Quaternion())
+          .multiply(binding.thumbPalmFromHandLocal);
+        const desiredWorldDirection =
+          binding.thumbPalmLocalDirection
+            .clone()
+            .applyQuaternion(currentPalmWorld);
+        const target = solveBoneLocalFrame(
+          binding.thumbSegmentAxisLocal,
+          binding.restLocalQuaternion,
+          binding.thumbPalmNormalAxisLocal,
+          binding.thumbPalmLongitudinalAxisLocal,
+          desiredWorldDirection,
+          new Vector3(0, 0, 1).applyQuaternion(currentPalmWorld),
+          new Vector3(1, 0, 0).applyQuaternion(currentPalmWorld),
+          binding.bone.parent.getWorldQuaternion(new Quaternion()),
+        );
+        if (target) {
+          binding.bone.quaternion.slerp(target, blend);
+          binding.stabilizedLocalQuaternion.copy(
+            binding.bone.quaternion,
+          );
+        }
+      } else if (!isThumb) {
+        binding.bone.quaternion.slerp(
+          binding.stabilizedLocalQuaternion,
+          blend,
+        );
+      }
+      binding.bone.updateMatrixWorld(true);
     }
   }
   return trackedSides;
@@ -343,8 +612,6 @@ function retargetWrists(
   bindings: WristBinding[],
   motion: AvatarMotionFrame,
   blend: number,
-  influence: number,
-  maxAngleDegrees: number,
 ): Set<HandSide> {
   const trackedSides = new Set<HandSide>();
   for (const hand of motion.hands) {
@@ -361,14 +628,33 @@ function retargetWrists(
     const parentWorldQuaternion = binding.bone.parent.getWorldQuaternion(
       new Quaternion(),
     );
-    const target = solveWristLocalQuaternion(
-      binding,
-      targetPalmWorldQuaternion,
-      parentWorldQuaternion,
-      influence,
-      maxAngleDegrees,
+    if (binding.lastProcessedSourceTimestampMs !== hand.updatedAtMs) {
+      const solved = solveContinuousWristLocalQuaternion(
+        binding,
+        targetPalmWorldQuaternion,
+        parentWorldQuaternion,
+        hand.updatedAtMs,
+        binding.solverState,
+        {
+          maxAngularSpeedDegreesPerSecond: 540,
+          initialDeltaSeconds: 1 / 10,
+        },
+      );
+      binding.solverState = solved.nextState;
+      if (solved.accepted) {
+        // The solver already follows the full target with a timestamp-aware
+        // angular speed budget. A second source-frame low-pass here caused
+        // palm-back motion to lag enough to resemble another pose limit.
+        binding.stabilizedLocalQuaternion.copy(solved.targetQuaternion);
+      }
+      // A tracker timestamp is solved only once even though the renderer may
+      // draw the same Hand Landmarker sample several times.
+      binding.lastProcessedSourceTimestampMs = hand.updatedAtMs;
+    }
+    binding.bone.quaternion.slerp(
+      binding.stabilizedLocalQuaternion,
+      blend,
     );
-    binding.bone.quaternion.slerp(target, blend);
     binding.bone.updateMatrixWorld(true);
     trackedSides.add(hand.side);
   }
@@ -382,6 +668,11 @@ function relaxFingers(
 ): void {
   for (const binding of bindings) {
     if (!sides.has(binding.side)) continue;
+    binding.stabilizedLocalQuaternion.slerp(
+      binding.restLocalQuaternion,
+      blend,
+    );
+    binding.lastSourceTimestampMs = null;
     binding.bone.quaternion.slerp(binding.restLocalQuaternion, blend);
   }
 }
@@ -393,8 +684,14 @@ function relaxWrists(
 ): void {
   for (const binding of bindings) {
     if (!sides.has(binding.side)) continue;
+    binding.lastProcessedSourceTimestampMs = null;
+    binding.stabilizedLocalQuaternion.slerp(
+      binding.restLocalQuaternion,
+      blend,
+    );
     binding.bone.quaternion.slerp(binding.restLocalQuaternion, blend);
     binding.bone.updateMatrixWorld(true);
+    binding.solverState = resetWristSolverState();
   }
 }
 
@@ -578,8 +875,8 @@ export function VrmPreview({
   motionLostHoldMs,
   motionRelaxMs,
   wristRotationEnabled,
-  wristRotationInfluence,
-  wristMaxAngleDegrees,
+  fingerSpreadInfluence,
+  fingerSpreadMaxDegrees,
   reducedMotion,
   onReady,
   onError,
@@ -677,6 +974,10 @@ export function VrmPreview({
     let bindings: SegmentBinding[] = [];
     let wristBindings: WristBinding[] = [];
     let fingerBindings: FingerBinding[] = [];
+    const handFilterStates: Record<HandSide, HandLandmarkFilterState> = {
+      left: createHandLandmarkFilterState(),
+      right: createHandLandmarkFilterState(),
+    };
     const wristSeenAt: Record<HandSide, number> = {
       left: Number.NEGATIVE_INFINITY,
       right: Number.NEGATIVE_INFINITY,
@@ -781,22 +1082,34 @@ export function VrmPreview({
                 now - handSeenAtRef.current[side] <= motionLostHoldMs,
             )
           : [];
-        const trackedSides =
-          motion && freshHands.length > 0
-            ? retargetFingers(
-                fingerBindings,
-                { ...motion, hands: freshHands },
-                motionBlend(motionSmoothing, delta),
-              )
-            : new Set<HandSide>();
+        const stabilizedHands = freshHands.flatMap((hand) => {
+          if (hand.worldLandmarks.length < 21) return [];
+          const stabilized = stabilizeHandWorldLandmarks(
+            hand.worldLandmarks,
+            hand.updatedAtMs,
+            handFilterStates[hand.side],
+          );
+          handFilterStates[hand.side] = stabilized.nextState;
+          return stabilized.landmarks.length >= 21
+            ? [{ ...hand, worldLandmarks: stabilized.landmarks }]
+            : [];
+        });
         const wristTrackedSides =
           wristRotationEnabled && motion && freshHands.length > 0
             ? retargetWrists(
                 wristBindings,
                 { ...motion, hands: freshHands },
-                motionBlend(motionSmoothing, delta),
-                wristRotationInfluence,
-                wristMaxAngleDegrees,
+                motionBlend(motionSmoothing, delta, 110, 30),
+              )
+            : new Set<HandSide>();
+        const trackedSides =
+          motion && stabilizedHands.length > 0
+            ? retargetFingers(
+                fingerBindings,
+                { ...motion, hands: stabilizedHands },
+                motionBlend(motionSmoothing, delta, 140, 35),
+                fingerSpreadInfluence,
+                fingerSpreadMaxDegrees,
               )
             : new Set<HandSide>();
         for (const side of wristTrackedSides) {
@@ -829,6 +1142,9 @@ export function VrmPreview({
             staleSides,
             1 - Math.exp(-delta / relaxSeconds),
           );
+          for (const side of staleSides) {
+            handFilterStates[side] = createHandLandmarkFilterState();
+          }
         }
         if (staleWristSides.size > 0) {
           const relaxSeconds = Math.max(0.001, motionRelaxMs / 1000);
@@ -893,6 +1209,8 @@ export function VrmPreview({
     };
   }, [
     cameraDistance,
+    fingerSpreadInfluence,
+    fingerSpreadMaxDegrees,
     modelPath,
     modelScale,
     motionLostHoldMs,
@@ -901,9 +1219,7 @@ export function VrmPreview({
     onError,
     onReady,
     reducedMotion,
-    wristMaxAngleDegrees,
     wristRotationEnabled,
-    wristRotationInfluence,
   ]);
 
   return (

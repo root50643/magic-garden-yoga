@@ -471,17 +471,17 @@ export function validateGameConfig(value: unknown): GameConfig {
       );
       requiredNumber(
         hands,
-        "wristRotationInfluence",
+        "fingerSpreadInfluence",
         "avatarTracking.hands",
         issues,
-        { min: 0, max: 1 },
+        { min: 0, max: 2 },
       );
       requiredNumber(
         hands,
-        "wristMaxAngleDegrees",
+        "fingerSpreadMaxDegrees",
         "avatarTracking.hands",
         issues,
-        { min: 0, max: 180 },
+        { min: 0, max: 60 },
       );
       requiredNumber(
         hands,
