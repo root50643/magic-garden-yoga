@@ -6,6 +6,22 @@
 
 本專案是獨立的 Vite + React + TypeScript 應用程式。姿勢追蹤與 VRM 互動概念參考 [SystemAnimatorOnline / XR Animator](https://github.com/ButzYung/SystemAnimatorOnline)，沒有複製其介面、美術、音效或原始碼。
 
+## 遊戲畫面
+
+### 準備畫面
+
+玩家可以在開始前確認 VRM 魔法夥伴、攝影機取景與全身入鏡狀態。
+
+![魔法花園瑜珈闖關準備畫面](docs/images/game-ready-screen.png)
+
+### 闖關畫面
+
+闖關介面會顯示姿勢示範、動作說明、關卡計時與連續保持進度。
+
+<p align="center">
+  <img src="docs/images/gameplay-screen.png" alt="魔法花園瑜珈闖關遊戲畫面，顯示山式姿勢卡與充能進度" width="504">
+</p>
+
 ## 目前功能
 
 - MediaPipe Pose Landmarker 在 Web Worker 中執行，最多辨識兩人並阻止多人狀態累積進度。
